@@ -16,12 +16,18 @@ $('logout').onclick=async()=>{await api('/api/logout',{method:'POST',body:'{}'})
 $('export').onclick=async()=>busy($('export'),async()=>{const r=await fetch('/api/reports/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start:Date.parse('2026-09-01T00:00:00Z'),end:Date.parse('2026-09-22T00:00:00Z')})});if(!r.ok){const data=await r.json();state.requestId=data.requestId;$('export-error').hidden=false;state.case=null;}else{const blob=await r.blob();const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='smm-report.csv';link.click();URL.revokeObjectURL(link.href);}});
 function evidence(c){const el=$('evidence-preview');el.replaceChildren();[['页面','活动报告 / reports'],['采集时间',date(c.capturedAt||c.receivedAt)],['错误请求',c.requestId||'无关联请求'],['截图',state.case?.browserEvidence?'已采集 Chrome 原生截图':'未采集：需先启用浏览器采集扩展'],['证据来源','应用内采集；服务器日志单独关联']].forEach(([k,v])=>el.append(text('div',`${k}：${v}`,'evidence-line')));}
 async function openSupport(existing){
+  if(state.opening)return;
+  state.opening=true;
+  try{await openSupportOnce(existing);}finally{state.opening=false;}
+}
+async function openSupportOnce(existing){
+  const checkpoint={capturedAt:new Date().toISOString(),requestId:state.requestId,viewport:{width:innerWidth,height:innerHeight},browser:navigator.userAgent,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone};
   const browserEvidence=!existing&&!state.case?await captureIncident():null;
   $('support-panel').hidden=false;$('support-launcher').hidden=true;$('support-launcher').setAttribute('aria-expanded','true');$('support-error').textContent='';$('diagnosis-answer')?.remove();clearInterval(state.poll);
   if(existing){state.case=await api(`/api/cases/${existing}`);$('description').value=state.case.description;}
   if(!state.case){
     $('receipt').hidden=true;$('timeline').replaceChildren();$('capture-status').textContent='正在保存当前现场…';$('start-investigation').disabled=true;$('submit-feedback').disabled=true;
-    try{state.case=await api('/api/cases',{method:'POST',body:JSON.stringify({description:'',checkpoint:{capturedAt:new Date().toISOString(),requestId:state.requestId,viewport:{width:innerWidth,height:innerHeight},browser:navigator.userAgent,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone}})});}
+    try{state.case=await api('/api/cases',{method:'POST',body:JSON.stringify({description:'',checkpoint})});}
     catch(error){$('capture-status').textContent='现场保存失败';$('support-error').textContent=error.message;return;}
     finally{$('start-investigation').disabled=false;$('submit-feedback').disabled=false;}
     if(browserEvidence){try{const attached=await api(`/api/cases/${state.case.id}/evidence`,{method:'POST',body:JSON.stringify(browserEvidence)});state.case.browserEvidence=attached.metadata;}catch{$('support-error').textContent='页面信息已保存，截图上传未完成。';}}
