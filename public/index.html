@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#163c30"><meta name="description" content="SMM 营销工作台与产品内问题诊断演示"><title>SMM · 营销工作台</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<body>
+<section id="login-view" class="login-layout">
+  <div class="login-story"><a class="wordmark" href="/">smm<span>●</span></a><div><p class="eyebrow">STUDIO NORTH / WORKSPACE</p><h1>把想法带出去。<br><em>让每一次触达<br>都有回响。</em></h1><p class="story-note">你的活动、报告与团队，<br>在一个熟悉的工作空间里。</p></div><span class="edition">SMM / PRODUCT DEMO · 2026</span></div>
+  <div class="login-form-wrap"><div class="login-form-inner"><p class="eyebrow">欢迎回来</p><h2>登录你的工作空间</h2><p class="muted">演示账号使用独立的 SMM 登录会话。</p><form id="login-form"><label>账号<input name="username" autocomplete="username" value="demo" required></label><label>密码<input name="password" type="password" autocomplete="current-password" required placeholder="输入演示密码"></label><p id="login-error" class="error-text" role="alert"></p><button class="primary full" type="submit">进入工作空间 <span>↗</span></button></form><p class="fineprint">登录后，产品支持会直接识别你的身份。<br>无需再注册或登录其他账号。</p></div></div>
+</section>
+<div id="workspace" hidden>
+  <aside class="sidebar"><a class="wordmark" href="/">smm<span>●</span></a><div class="workspace-label"><span class="workspace-icon">N</span><div>Studio North<small>营销工作空间</small></div></div><p class="nav-group">工作空间</p><nav><a href="#reports" class="active"><span>▦</span> 活动报告 <span class="nav-count">03</span></a><a id="feedback-nav" href="#feedback"><span>◌</span> 我的反馈</a><a id="team-nav" href="#team" hidden><span>↳</span> 开发者收件箱</a></nav><div class="sidebar-bottom"><div class="environment"><i></i> 演示环境</div><button id="logout" class="logout">退出登录 ↗</button></div></aside>
+  <main class="main"><header class="topbar"><span>工作空间 <b>/</b> <span id="breadcrumb">活动报告</span></span><div class="profile"><span id="profile-name">林夏</span><span class="avatar" id="avatar">林</span></div></header>
+    <section id="reports-view" class="page"><div class="page-heading"><div><p class="eyebrow">CAMPAIGN INSIGHTS</p><h1>每一次触达，<span>都看得见。</span></h1><p class="muted">汇总活动表现，与团队分享下一步。</p></div><span class="period">2026 年 9 月</span></div>
+      <div class="report-intro"><div><span class="tag">月度概览</span><h2>九月营销报告</h2><p>3 个活动 · Studio North</p></div><button class="primary" id="export">导出报表 <span>↓</span></button></div>
+      <div id="export-error" class="incident-banner" role="alert" hidden><span class="incident-icon">!</span><div><strong>报表暂时无法导出</strong><p>你的数据仍已保存。让产品支持帮你看看发生了什么。</p></div><button id="investigate-error" class="text-button">帮我看看 ↗</button></div>
+      <div class="table-heading"><h3>活动表现</h3><span>示例业务数据</span></div><div class="table-scroll"><table><thead><tr><th>活动名称</th><th>渠道</th><th>触达人数</th><th>互动次数</th><th>状态</th></tr></thead><tbody><tr><td><span class="campaign-dot peach"></span><strong>秋日新品 · 第一波</strong><small>9 月 12 日 — 9 月 19 日</small></td><td>社交媒体</td><td>42,860</td><td>2,143</td><td><span class="status-live">进行中</span></td></tr><tr><td><span class="campaign-dot sage"></span><strong>给老朋友的一封信</strong><small>9 月 16 日 — 9 月 18 日</small></td><td>邮件</td><td>18,640</td><td>1,305</td><td><span class="status-done">已完成</span></td></tr><tr><td><span class="campaign-dot sand"></span><strong>周末灵感企划</strong><small>9 月 20 日 — 9 月 27 日</small></td><td>内容合作</td><td>12,480</td><td>816</td><td><span class="status-live">进行中</span></td></tr></tbody></table></div>
+      <footer class="page-footer"><span>上面的业务指标为演示数据，导出请求与错误记录由服务端实时生成。</span><span>SMM / 01</span></footer>
+    </section>
+    <section id="feedback-view" class="page" hidden><p class="eyebrow">YOUR CONVERSATIONS</p><h1>我的反馈</h1><p class="muted">现场、对话和后续进展，都保留在这里。</p><div id="feedback-list" class="record-list"></div></section>
+    <section id="team-view" class="page" hidden><p class="eyebrow">DEVELOPER INBOX</p><h1>从现场开始理解问题</h1><p class="muted">仅开发者可见的诊断证据。源码当前来自部署快照。</p><div id="team-list" class="record-list"></div></section>
+  </main>
+  <button id="support-launcher" class="support-launcher" aria-expanded="false" aria-controls="support-panel"><span class="support-symbol">✳</span> 帮我看看 <span>↗</span></button>
+  <aside id="support-panel" class="support-panel" aria-label="SMM 产品支持" hidden>
+    <header class="support-header"><div><span class="support-symbol">✳</span><div><strong>SMM 产品支持</strong><small>由 Mosoo 提供诊断能力</small></div></div><button id="close-support" class="icon-button" aria-label="关闭支持面板">×</button></header>
+    <div class="support-body"><div class="identity-note"><i></i><span id="identity-note">已识别你的 SMM 身份</span></div><h2>发生了什么？<br><span>我们一起看看。</span></h2><p class="support-intro">不需要整理复现步骤。保存当前现场，再简单说说你想完成什么。</p>
+      <div id="capture-status" class="capture-status">打开面板时会保存当前页面和错误请求信息。</div><label class="composer-label" for="description">你想完成什么？</label><textarea id="description" rows="3" placeholder="例如：我想把九月报表发给同事，但导出失败了。"></textarea>
+      <div class="support-actions"><button id="start-investigation" class="primary full">让 Agent 调查 <span>↗</span></button><button id="submit-feedback" class="secondary full">直接提交反馈</button></div>
+      <p id="support-error" class="error-text" role="status"></p><ol id="timeline" class="timeline" aria-live="polite"></ol><div id="receipt" class="receipt" hidden></div>
+      <details class="evidence-details"><summary>本次保存了什么</summary><div id="evidence-preview"></div><p>仅检查本次问题的允许范围。不会修改你的产品数据。</p></details>
+    </div><footer class="support-footer">留在这里继续聊，也可以稍后从“我的反馈”回来。</footer>
+  </aside>
+</div>
+</body></html>

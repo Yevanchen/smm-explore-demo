@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const base=process.env.SMM_TEST_URL||'http://localhost:8794';
+const secrets=Object.fromEntries(readFileSync('.dev.vars','utf8').trim().split('\n').map(l=>{const i=l.indexOf('=');return [l.slice(0,i),JSON.parse(l.slice(i+1))];}));
+const call=(path,{method='GET',data,cookie,origin=base}={})=>fetch(base+path,{method,headers:{Origin:origin,'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},...(data?{body:JSON.stringify(data)}:{})});
+assert.equal((await call('/api/me')).status,401);
+assert.equal((await call('/api/login',{method:'POST',origin:'https://untrusted.example',data:{username:'demo',password:secrets.DEMO_PASSWORD}})).status,403);
+async function login(username,password){const r=await call('/api/login',{method:'POST',data:{username,password}});assert.equal(r.status,200);assert.match(r.headers.get('set-cookie'),/HttpOnly/);return r.headers.get('set-cookie').split(';')[0];}
+const cookie=await login('demo',secrets.DEMO_PASSWORD);
+const me=await (await call('/api/me',{cookie})).json();assert.equal(me.role,'user');
+assert.equal((await call('/api/team/cases',{cookie})).status,403);
+const failed=await call('/api/reports/export',{method:'POST',cookie,data:{start:1790000000000,end:1790100000000}});assert.equal(failed.status,422);
+const {requestId}=await failed.json();assert.ok(requestId);
+const cr=await call('/api/cases',{method:'POST',cookie,data:{description:'smoke: report failed',checkpoint:{requestId,cookies:'must-never-persist',capturedAt:new Date().toISOString()}}});assert.equal(cr.status,201);
+const c=await cr.json();assert.equal(c.checkpoint.cookies,undefined);assert.equal(c.checkpoint.requestId,requestId);
+assert.equal((await call(`/api/cases/${c.id}/start`,{method:'POST',cookie,data:{}})).status,503);
+assert.equal((await call(`/api/cases/${c.id}/submit`,{method:'POST',cookie,data:{description:'smoke: report failed'}})).status,200);
+const founder=await login('founder',secrets.FOUNDER_PASSWORD);
+assert.equal((await call(`/api/cases/${c.id}`,{cookie:founder})).status,404);
+const team=await (await call('/api/team/cases',{cookie:founder})).json();const received=team.cases.find(x=>x.id===c.id);assert.ok(received);
+assert.equal(received.logs[0].id,requestId);assert.equal(received.logs[0].code,'TIMESTAMP_UNIT_MISMATCH');assert.ok(received.source.sha256);
+assert.equal((await call('/mcp',{method:'POST',data:{jsonrpc:'2.0',id:1,method:'tools/list'}})).status,401);
+const mcpCall=async(method,params)=>{const r=await fetch(base+'/mcp',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+secrets.SMM_MCP_SECRET},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});assert.equal(r.status,200);return r.json();};
+const toolList=await mcpCall('tools/list');assert.equal(toolList.result.tools.length,4);
+const denied=await mcpCall('tools/call',{name:'read_export_source',arguments:{capability:'a'.repeat(72)}});assert.equal(denied.result.isError,true);
+await call('/api/logout',{method:'POST',cookie,data:{}});assert.equal((await call('/api/me',{cookie})).status,401);
+console.log(JSON.stringify({ok:true,checked:['server_session','csrf','role_separation','real_export_failure','checkpoint_redaction','agent_unavailable_fallback','feedback_receipt','cross_user_case_denial','correlated_server_log','protected_mcp','mcp_catalog','invalid_capability_denied','logout_revocation'],caseId:c.id},null,2));

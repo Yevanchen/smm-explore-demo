@@ -1,0 +1,10 @@
+{
+  "manifest_version":3,
+  "name":"SMM incident capture — demo",
+  "version":"0.1.0",
+  "description":"Explicitly arm one SMM tab for five minutes; capture one incident screenshot and filtered request status.",
+  "permissions":["debugger","activeTab","alarms"],
+  "background":{"service_worker":"background.js","type":"module"},
+  "action":{"default_title":"启用当前 SMM 标签页采集（5 分钟、单次截图）"},
+  "content_scripts":[{"matches":["https://smm-explore-demo.evanchen.workers.dev/*","http://localhost:8794/*"],"js":["content.js"],"run_at":"document_start"}]
+}
