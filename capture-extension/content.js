@@ -1,3 +1,5 @@
+const advertise=()=>{document.documentElement.dataset.smmCaptureBridge='ready';};
+if(document.documentElement)advertise();else document.addEventListener('DOMContentLoaded',advertise,{once:true});
 // This bridge is limited to manifest-listed origins and never accepts a CDP method or tab ID.
 window.addEventListener('message',async event=>{
   if(event.source!==window||event.origin!==location.origin||event.data?.type!=='SMM_REQUEST_CAPTURE'||!/^[-a-f0-9]{36}$/.test(event.data.id||''))return;

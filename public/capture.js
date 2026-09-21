@@ -1,4 +1,5 @@
 export function captureIncident(){
+  if(document.documentElement.dataset.smmCaptureBridge!=='ready')return Promise.resolve(null);
   return new Promise(resolve=>{
     const id=crypto.randomUUID();
     const timer=setTimeout(()=>finish(null),2200);
