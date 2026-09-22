@@ -83,8 +83,9 @@ async function startCase(c,env) {
     await audit(env,c.id,'agent_started');return {threadId:id};
   }catch(error){await env.DB.prepare("UPDATE cases SET status='unavailable',agent_error=? WHERE id=?").bind('诊断启动未完成，反馈仍可提交。',c.id).run();throw error;}
 }
+const diagnosisPending=c=>c.status==='investigating'||(c.status==='needs_review'&&c.agent_error==='调查结束，但结果格式无法验证，已保留反馈供开发者查看。');
 async function refreshDiagnosis(c,env) {
-  if(!c.thread_id||c.status!=='investigating'||epoch()-(c.last_checked_at||0)<3)return c;
+  if(!c.thread_id||!diagnosisPending(c)||epoch()-(c.last_checked_at||0)<3)return c;
   const claimed=await env.DB.prepare("UPDATE cases SET last_checked_at=? WHERE id=? AND (last_checked_at IS NULL OR last_checked_at<=?)").bind(epoch(),c.id,epoch()-3).run();
   if(!claimed.meta.changes)return c;
   try {
@@ -232,7 +233,7 @@ async function route(request,env,trustedSession=null) {
   if(path==='/api/team/cases'&&request.method==='GET') {
     if(s.role!=='developer')fail(403,'需要开发者账号');
     const {results}=await env.DB.prepare('SELECT * FROM cases WHERE tenant_id=? AND submitted_at IS NOT NULL ORDER BY created_at DESC LIMIT 50').bind(s.tenant_id).all();
-    await Promise.all(results.filter(c=>c.status==='investigating').slice(0,5).map(c=>refreshDiagnosis(c,env)));
+    await Promise.all(results.filter(diagnosisPending).slice(0,5).map(c=>refreshDiagnosis(c,env)));
     return json({cases:await Promise.all(results.map(async c=>({id:c.id,createdAt:c.created_at,description:c.description,status:c.status,checkpoint:JSON.parse(c.checkpoint),diagnosis:c.result_json?JSON.parse(c.result_json):null,logs:await scopedLogs(c,env),source:incidentSource(c),hasScreenshot:!!(await env.DB.prepare('SELECT case_id FROM browser_evidence WHERE case_id=?').bind(c.id).first())}))) });
   }
   fail(404,'请求不存在');

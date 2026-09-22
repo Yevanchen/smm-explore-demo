@@ -11,3 +11,11 @@ test('separate customer and developer fields survive structured output',()=>{
  assert.equal(result.customerMessage,'已找到导出失败的原因。');
  assert.equal(result.confidence,'confirmed');
 });
+
+test('structured developer summary is preserved without leaking it into customer text',()=>{
+ const summary={intent:'截图核对',observedEvidence:['8 results'],missingEvidence:['No logs']};
+ const result=parseDiagnosis(JSON.stringify({customerMessage:'截图显示 8 个 Agent。',developerSummary:summary,confidence:'confirmed'}));
+ assert.deepEqual(JSON.parse(result.developerSummary),summary);
+ assert.equal(result.customerMessage,'截图显示 8 个 Agent。');
+ assert.equal(parseDiagnosis(JSON.stringify({customerMessage:'hello',developerSummary:[],confidence:'confirmed'})),null);
+});
