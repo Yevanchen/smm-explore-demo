@@ -1,0 +1,7 @@
+const $=id=>document.getElementById(id);
+async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});const data=await r.json();if(!r.ok)throw Error(data.message||'请求失败');return data;}
+function el(tag,value){const n=document.createElement(tag);n.textContent=value;return n;}
+async function load(){const me=await api('/api/me');if(me.role!=='developer')throw Error('请使用开发者账号登录');$('admin-login').hidden=true;$('admin-workspace').hidden=false;const {cases}=await api('/api/team/cases');$('inbox').replaceChildren();if(!cases.length)$('inbox').append(el('p','还没有来自 Mosoo Computer 的反馈。'));for(const c of cases){const article=el('article','');article.className='record';article.append(el('h3',c.description),el('small',`${c.id.slice(0,8).toUpperCase()} · ${c.status} · ${new Date(c.createdAt).toLocaleString()}`));for(const [name,data]of [['页面现场',c.checkpoint],['调查结果',c.diagnosis||'尚无诊断结论'],['关联日志',c.logs.length?c.logs:'尚无已关联的生产日志'],['源码',c.source]]){const d=el('details','');d.append(el('summary',name),el('pre',JSON.stringify(data,null,2)));article.append(d);}$('inbox').append(article);}}
+$('admin-form').onsubmit=async event=>{event.preventDefault();try{await api('/api/login',{username:'founder',password:new FormData(event.target).get('password')});await load();}catch(e){$('login-message').textContent=e.message;}};
+$('admin-logout').onclick=async()=>{await api('/api/logout',{});location.reload();};
+load().catch(()=>{});

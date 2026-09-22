@@ -36,6 +36,7 @@ async function scopedLogs(c,env) {
   const r=await env.DB.prepare('SELECT id,occurred_at,status,code,details FROM request_logs WHERE id=? AND tenant_id=? AND user_id=?').bind(checkpoint.requestId,c.tenant_id,c.user_id).first();
   return r?[{...r,details:JSON.parse(r.details)}]:[];
 }
+const incidentSource=c=>c.tenant_id==='mosoo-computer'?{status:'unavailable',reason:'Mosoo Computer source access is not configured for this incident. Do not use SMM fixture source.'}:source;
 async function audit(env,id,action){await env.DB.prepare('INSERT INTO audit(case_id,occurred_at,action) VALUES(?,?,?)').bind(id,now(),action).run();}
 async function mosoo(env,path,options={}) {
   if(!env.MOSOO_API_TOKEN||!env.MOSOO_AGENT_ID)fail(503,'诊断服务尚未连接；现场已保存，可以直接提交反馈。');
@@ -106,12 +107,21 @@ async function mcp(request,env) {
   const c=await env.DB.prepare('SELECT * FROM cases WHERE tool_token_hash=? AND tool_expires_at>?').bind(await digest(cap),epoch()).first();
   if(!c)return reply({isError:true,content:[{type:'text',text:'Expired or unauthorized incident capability'}]});
   if(name==='read_incident_image'){const record=await env.DB.prepare('SELECT image_base64,metadata FROM browser_evidence WHERE case_id=?').bind(c.id).first();if(!record)return reply({content:[{type:'text',text:'No browser screenshot was captured for this incident.'}]});await audit(env,c.id,name);return reply({content:[{type:'text',text:record.metadata},{type:'image',data:record.image_base64,mimeType:'image/jpeg'}]});}
-  const result=name==='read_incident_checkpoint'?JSON.parse(c.checkpoint):name==='read_incident_logs'?await scopedLogs(c,env):source;
+  const result=name==='read_incident_checkpoint'?JSON.parse(c.checkpoint):name==='read_incident_logs'?await scopedLogs(c,env):incidentSource(c);
   await audit(env,c.id,name);
   return reply({content:[{type:'text',text:JSON.stringify(result)}]});
 }
-async function route(request,env) {
+async function route(request,env,trustedSession=null) {
   const url=new URL(request.url),path=url.pathname;
+  if(path.startsWith('/internal/computer/')){
+    if(!await equalSecret(request.headers.get('authorization')?.replace(/^Bearer /,''),env.SMM_COMPUTER_SECRET))fail(401,'Unauthorized');
+    const userId=request.headers.get('x-smm-user-id');
+    if(!userId||userId.length>160||/[\r\n]/.test(userId))fail(401,'Invalid identity');
+    const suffix=path.slice('/internal/computer'.length);
+    if(!/^\/cases(?:\/[a-f0-9-]{36}(?:\/(?:submit|start|events|evidence|image))?)?$/.test(suffix))fail(404,'Not found');
+    const target=new URL('/api'+suffix,url);const headers=new Headers({'Content-Type':request.headers.get('content-type')||'application/json',Origin:target.origin});
+    return route(new Request(target,{method:request.method,headers,body:['GET','HEAD'].includes(request.method)?undefined:JSON.stringify(await body(request,370000))}),env,{user_id:userId,tenant_id:'mosoo-computer',role:'user'});
+  }
   if(path==='/mcp')return mcp(request,env);
   if(!path.startsWith('/api/'))return env.ASSETS.fetch(request);
   if(!['GET','HEAD'].includes(request.method)&&!sameOrigin(request))fail(403,'请求来源不匹配');
@@ -124,11 +134,11 @@ async function route(request,env) {
     const role=b.username==='founder'?'developer':'user';
     const expected=role==='developer'?env.FOUNDER_PASSWORD:env.DEMO_PASSWORD;
     if(!['demo','founder'].includes(b.username)||!await equalSecret(b.password,expected))fail(401,'账号或密码不正确');
-    const t=token();const s={user_id:role==='developer'?'founder-01':'demo-01',tenant_id:'studio-north',role};
+    const t=token();const s={user_id:role==='developer'?'founder-01':'demo-01',tenant_id:role==='developer'?'mosoo-computer':'studio-north',role};
     await env.DB.prepare('INSERT INTO sessions(token_hash,user_id,tenant_id,role,expires_at) VALUES(?,?,?,?,?)').bind(await digest(t),s.user_id,s.tenant_id,role,epoch()+43200).run();
     return json(identity(s),200,{'set-cookie':`smm_session=${t}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${url.protocol==='https:'?'; Secure':''}`});
   }
-  const s=await session(request,env);
+  const s=trustedSession||await session(request,env);
   if(path==='/api/me')return json({...identity(s),agentReady:env.AGENT_CALLS_ENABLED==='true'&&!!env.MOSOO_AGENT_ID&&!!env.MOSOO_API_TOKEN});
   if(path==='/api/logout'&&request.method==='POST') {
     await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(s.token_hash).run();
@@ -142,6 +152,12 @@ async function route(request,env) {
   }
   if(path==='/api/cases'&&request.method==='POST') {
     const b=await body(request),checkpoint=sanitizeCheckpoint(b.checkpoint||{}),id=crypto.randomUUID();
+    if(s.tenant_id==='mosoo-computer'){
+      const page=b.checkpoint?.computer?.page;
+      checkpoint.route=['agents','agent','credentials','settings','channels','sessions'].includes(page)?page:'computer';
+      checkpoint.title='Mosoo Computer';checkpoint.observedError=b.checkpoint?.computer?.hasError===true?'Product error visible':null;
+      checkpoint.pageEvidence={source:'computer-page-sdk',kind:'semantic-state',page:checkpoint.route,hasError:b.checkpoint?.computer?.hasError===true,limitations:'No messages, input values, credentials or full DOM replay collected.'};
+    }
     checkpoint.receivedAt=now();checkpoint.build=env.BUILD_VERSION;
     // Verify correlation before persisting; clients cannot attach another user's server evidence.
     if(checkpoint.requestId){const log=await env.DB.prepare('SELECT id FROM request_logs WHERE id=? AND user_id=? AND tenant_id=?').bind(checkpoint.requestId,s.user_id,s.tenant_id).first();if(!log)checkpoint.requestId=null;}
@@ -182,7 +198,7 @@ async function route(request,env) {
   if(path==='/api/team/cases'&&request.method==='GET') {
     if(s.role!=='developer')fail(403,'需要开发者账号');
     const {results}=await env.DB.prepare('SELECT * FROM cases WHERE tenant_id=? AND submitted_at IS NOT NULL ORDER BY created_at DESC LIMIT 50').bind(s.tenant_id).all();
-    return json({cases:await Promise.all(results.map(async c=>({id:c.id,createdAt:c.created_at,description:c.description,status:c.status,checkpoint:JSON.parse(c.checkpoint),diagnosis:c.result_json?JSON.parse(c.result_json):null,logs:await scopedLogs(c,env),source}))) });
+    return json({cases:await Promise.all(results.map(async c=>({id:c.id,createdAt:c.created_at,description:c.description,status:c.status,checkpoint:JSON.parse(c.checkpoint),diagnosis:c.result_json?JSON.parse(c.result_json):null,logs:await scopedLogs(c,env),source:incidentSource(c)}))) });
   }
   fail(404,'请求不存在');
 }

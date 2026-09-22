@@ -70,3 +70,14 @@ test('one-event limit rejects another case while allowing the original idempoten
   assert.equal(starts,1);
  }finally{globalThis.fetch=originalFetch;db.close();}
 });
+test('Computer service integration validates secret, isolates owners and does not attach fixture evidence',async()=>{
+ const {db,env}=await setup();env.SMM_COMPUTER_SECRET='integration-test-only';
+ const internal=(path,user,body,secret='integration-test-only')=>worker.fetch(new Request('https://smm.test/internal/computer'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+secret,'x-smm-user-id':user,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}),env);
+ try{
+  assert.equal((await internal('/cases','owner',{},'bad')).status,401);
+  const response=await internal('/cases','owner',{checkpoint:{computer:{page:'agents',hasError:true},requestId:'a'.repeat(36)}});assert.equal(response.status,201);const c=await response.json();
+  assert.equal(c.checkpoint.title,'Mosoo Computer');assert.equal(c.checkpoint.route,'agents');assert.equal(c.checkpoint.requestId,null);
+  assert.equal((await internal(`/cases/${c.id}`,'other')).status,404);
+  assert.equal((await internal('/team/cases','owner')).status,404);
+ }finally{db.close();}
+});
