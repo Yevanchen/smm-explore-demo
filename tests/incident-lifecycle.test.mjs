@@ -7,7 +7,7 @@ import worker from '../src/worker.mjs';
 import {digest,token} from '../src/security.mjs';
 async function setup(){
  const db=new DatabaseSync(':memory:');
- for(const name of ['0001.sql','0002_diagnosis.sql','0003_browser_evidence.sql'])db.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
+ for(const name of ['0001.sql','0002_diagnosis.sql','0003_browser_evidence.sql','0004_explore_scope.sql'])db.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
  const env={DB:{prepare(sql){const statement=db.prepare(sql);return {bind(...args){return {first:async()=>statement.get(...args)||null,all:async()=>({results:statement.all(...args)}),run:async()=>({meta:statement.run(...args)})};}}}},AGENT_CALLS_ENABLED:'true',MOSOO_API_BASE:'https://mock.invalid/api/v1',MOSOO_AGENT_ID:'test-agent',MOSOO_API_TOKEN:'test-only',SMM_MCP_SECRET:'test-only-mcp',BUILD_VERSION:'test'};
  const cookies={};
  for(const [user,role,tenant]of [['owner','user','one'],['other','user','one'],['founder','developer','one'],['outsider','developer','two']]){
@@ -151,5 +151,34 @@ test('developer review uploads screenshot as native Mosoo attachment and never g
   assert.equal((await call(`/api/cases/${c.id}/evidence`,'owner',image)).status,201);
   assert.equal((await devStart(c.id)).status,200);
   assert.deepEqual(request.resources,[{type:'file',file_id:'native-test-image'}]);
+ }finally{globalThis.fetch=originalFetch;db.close();}
+});
+
+test('submission starts one Explore; only a private developer review can read source',async()=>{
+ const {db,env,call}=await setup(),originalFetch=globalThis.fetch;env.AUTO_EXPLORE='true';const requests=[];
+ globalThis.fetch=async(url,options)=>{requests.push(JSON.parse(options.body));return Response.json({thread:{id:'scope-thread-'+requests.length}});};
+ try{
+  const c=await(await call('/api/cases','owner',{checkpoint:{},description:'Explore automatically'})).json();
+  assert.equal((await call(`/api/cases/${c.id}/submit`,'owner',{description:'Explore automatically'})).status,200);
+  await call(`/api/cases/${c.id}/submit`,'owner',{description:'Explore automatically'});
+  assert.equal(requests.length,1);
+  const capability=requests[0].input.content[0].text.match(/Diagnostic capability: ([a-f0-9-]{72})/)[1];
+  const tool=async(capability,name)=> (await worker.fetch(new Request('https://smm.test/mcp',{method:'POST',headers:{Authorization:'Bearer test-only-mcp','Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:{capability}}})}),env)).json();
+  assert.equal((await tool(capability,'read_incident_checkpoint')).result.isError,undefined);
+  assert.equal((await tool(capability,'read_export_source')).result.isError,true);
+  assert.equal((await call(`/api/team/cases/${c.id}/start`,'outsider',{})).status,404);
+  assert.equal((await call(`/api/team/cases/${c.id}/start`,'founder',{})).status,200);
+  assert.equal(requests.length,2);
+  const review=db.prepare('SELECT * FROM cases WHERE source_parent_id=?').get(c.id);
+  assert.equal((await call(`/api/cases/${review.id}`,'owner')).status,404);
+  assert.equal((await(await call('/api/cases')).json()).cases.length,1);
+  const developerCap=requests[1].input.content[0].text.match(/Diagnostic capability: ([a-f0-9-]{72})/)[1];
+  assert.equal((await tool(developerCap,'read_export_source')).result.isError,undefined);
+  assert.equal((await tool(developerCap,'request_incident_screenshot')).result.isError,true);
+  const fixture={source:'user-selected-browser-tab',mimeType:'image/jpeg',image:readFileSync(new URL('./fixtures/synthetic-transport.jpg',import.meta.url)).toString('base64'),capturedAt:new Date().toISOString(),viewport:{width:8,height:8},network:[]};
+  db.prepare('UPDATE cases SET screenshot_requested_at=? WHERE id=?').run(Math.floor(Date.now()/1000),c.id);
+  assert.equal((await call(`/api/cases/${c.id}/evidence`,'owner',fixture)).status,201);
+  const result=await tool(capability,'request_incident_screenshot');
+  assert.equal(result.result.content[1].type,'image');
  }finally{globalThis.fetch=originalFetch;db.close();}
 });
