@@ -1,4 +1,6 @@
-import { captureIncident } from './capture.js';
+import {recorder,installRecorder} from './recorder.js';
+installRecorder();
+import { captureIncident, captureSharedTab } from './capture.js';
 const $=id=>document.getElementById(id);
 const state={user:null,requestId:null,case:null,poll:null};
 const messages={checkpoint_saved:'当前现场已保存',browser_evidence_saved:'浏览器截图与请求状态已保存',read_incident_image:'Agent 已读取现场截图',agent_started:'Agent 已开始调查',read_incident_checkpoint:'已读取页面现场',read_incident_logs:'已关联服务器错误日志',read_export_source:'已读取部署源码快照',feedback_submitted:'反馈已提交',diagnosis_completed:'诊断已完成',diagnosis_needs_review:'已保留现场，等待开发者查看'};
@@ -10,18 +12,18 @@ function text(tag,value,className){const e=document.createElement(tag);e.textCon
 function short(id){return `SMM-${id.slice(0,8).toUpperCase()}`;}
 function date(value){return new Date(value).toLocaleString('zh-CN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
 async function busy(button,fn){const label=button.textContent;button.disabled=true;try{return await fn();}finally{button.disabled=false;button.textContent=label;}}
-function signedIn(user){state.user=user;$('login-view').hidden=true;$('workspace').hidden=false;$('profile-name').textContent=user.name;$('avatar').textContent=user.name.slice(0,1);$('identity-note').textContent=`${user.name} · 已通过 SMM 登录`;$('team-nav').hidden=user.role!=='developer';navigate();}
+function signedIn(user){recorder.clear();state.user=user;$('login-view').hidden=true;$('workspace').hidden=false;$('profile-name').textContent=user.name;$('avatar').textContent=user.name.slice(0,1);$('identity-note').textContent=`${user.name} · 已通过 SMM 登录`;$('team-nav').hidden=user.role!=='developer';navigate();}
 $('login-form').addEventListener('submit',async e=>{e.preventDefault();$('login-error').textContent='';const f=new FormData(e.target);await busy(e.submitter,async()=>{try{signedIn(await api('/api/login',{method:'POST',body:JSON.stringify(Object.fromEntries(f))}));}catch(error){$('login-error').textContent=error.message;}});});
 $('logout').onclick=async()=>{await api('/api/logout',{method:'POST',body:'{}'});location.reload();};
-$('export').onclick=async()=>busy($('export'),async()=>{const r=await fetch('/api/reports/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start:Date.parse('2026-09-01T00:00:00Z'),end:Date.parse('2026-09-22T00:00:00Z')})});if(!r.ok){const data=await r.json();state.requestId=data.requestId;$('export-error').hidden=false;state.case=null;}else{const blob=await r.blob();const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='smm-report.csv';link.click();URL.revokeObjectURL(link.href);}});
-function evidence(c){const el=$('evidence-preview');el.replaceChildren();[['页面','活动报告 / reports'],['采集时间',date(c.capturedAt||c.receivedAt)],['错误请求',c.requestId||'无关联请求'],['截图',state.case?.browserEvidence?'已采集 Chrome 原生截图':'未采集：需先启用浏览器采集扩展'],['证据来源','应用内采集；服务器日志单独关联']].forEach(([k,v])=>el.append(text('div',`${k}：${v}`,'evidence-line')));}
+$('export').onclick=async()=>busy($('export'),async()=>{const started=performance.now();const r=await fetch('/api/reports/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start:Date.parse('2026-09-01T00:00:00Z'),end:Date.parse('2026-09-22T00:00:00Z')})});if(!r.ok){const data=await r.json();state.requestId=data.requestId;recorder.record({type:'request',path:'/api/reports/export',status:r.status,requestId:data.requestId,durationMs:performance.now()-started});$('export-error').hidden=false;state.case=null;}else{const blob=await r.blob();const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='smm-report.csv';link.click();URL.revokeObjectURL(link.href);}});
+function evidence(c){const el=$('evidence-preview');el.replaceChildren();[['页面','活动报告 / reports'],['采集时间',date(c.capturedAt||c.receivedAt)],['错误请求',c.requestId||'无关联请求'],['截图',state.case?.browserEvidence?(state.case.browserEvidence.source==='user-selected-browser-tab'?'用户选择标签页的补充截图（非点击瞬间）':'已采集 Chrome 原生截图'):'未附加（可选）；页面状态和操作记录已保存'],['操作记录',`${c.pageEvidence?.events?.length||0} 条 · 最近 60 秒`],['证据来源','页面 SDK；非完整 DOM 回放，服务器日志单独关联']].forEach(([k,v])=>el.append(text('div',`${k}：${v}`,'evidence-line')));}
 async function openSupport(existing){
   if(state.opening)return;
   state.opening=true;
   try{await openSupportOnce(existing);}finally{state.opening=false;}
 }
 async function openSupportOnce(existing){
-  const checkpoint={capturedAt:new Date().toISOString(),requestId:state.requestId,viewport:{width:innerWidth,height:innerHeight},browser:navigator.userAgent,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone};
+  const checkpoint={pageEvidence:{events:recorder.snapshot(),state:{view:location.hash.slice(1)||'reports',exportErrorVisible:!$('export-error').hidden}},capturedAt:new Date().toISOString(),requestId:state.requestId,viewport:{width:innerWidth,height:innerHeight},browser:navigator.userAgent,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone};
   const browserEvidence=!existing&&!state.case?await captureIncident():null;
   $('support-panel').hidden=false;$('support-launcher').hidden=true;$('support-launcher').setAttribute('aria-expanded','true');$('support-error').textContent='';$('diagnosis-answer')?.remove();clearInterval(state.poll);
   if(existing){state.case=await api(`/api/cases/${existing}`);$('description').value=state.case.description;}
@@ -48,3 +50,5 @@ async function feedbackList(){const el=$('feedback-list');try{const r=await api(
 async function teamList(){const el=$('team-list');try{const r=await api('/api/team/cases');el.replaceChildren();if(!r.cases.length)el.append(text('p','还没有已提交的反馈。','empty'));for(const c of r.cases){const row=text('article','','record');row.append(text('h3',c.description),text('small',`${short(c.id)} · ${date(c.createdAt)} · ${c.status}`));for(const [title,value]of [['Agent 诊断',c.diagnosis],['现场证据',c.checkpoint],['相关服务器日志',c.logs],['部署源码快照',c.source]]){const d=document.createElement('details');d.append(text('summary',title),text('pre',JSON.stringify(value,null,2)));row.append(d);}el.append(row);}}catch(e){el.replaceChildren(text('p',e.message,'error-text'));}}
 window.addEventListener('hashchange',()=>navigate().catch(()=>{}));
 api('/api/me').then(signedIn).catch(()=>{$('login-view').hidden=false;});
+
+$('add-screenshot').onclick=()=>busy($('add-screenshot'),async()=>{try{if(!state.case)throw new Error('请先保存现场');const shot=await captureSharedTab();const attached=await api(`/api/cases/${state.case.id}/evidence`,{method:'POST',body:JSON.stringify(shot)});state.case.browserEvidence=attached.metadata;evidence(state.case.checkpoint);$('support-error').textContent='截图已附加，共享已停止。';}catch(e){$('support-error').textContent=e.name==='NotAllowedError'?'已取消截图，页面记录与反馈仍可使用。':e.message;}});

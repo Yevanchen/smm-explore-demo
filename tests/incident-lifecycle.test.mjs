@@ -56,3 +56,17 @@ test('retry preserves exact request and capability; final output excludes develo
   assert.equal((await (await tool()).json()).result.isError,true);
  }finally{globalThis.fetch=originalFetch;db.close();}
 });
+
+// Cost protection must reserve globally before any external request.
+test('one-event limit rejects another case while allowing the original idempotent retry',async()=>{
+ const {db,env,call}=await setup(),originalFetch=globalThis.fetch;env.AGENT_CASE_LIMIT='1';let starts=0;
+ globalThis.fetch=async()=>{starts++;return Response.json({thread:{id:'bounded-test-thread'}});};
+ try{
+  const a=await(await call('/api/cases','owner',{checkpoint:{}})).json();
+  const b=await(await call('/api/cases','owner',{checkpoint:{}})).json();
+  assert.equal((await call(`/api/cases/${a.id}/start`,'owner',{})).status,200);
+  assert.equal((await call(`/api/cases/${b.id}/start`,'owner',{})).status,429);
+  assert.equal((await call(`/api/cases/${a.id}/start`,'owner',{})).status,200);
+  assert.equal(starts,1);
+ }finally{globalThis.fetch=originalFetch;db.close();}
+});

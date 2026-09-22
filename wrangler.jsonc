@@ -6,6 +6,6 @@
   "compatibility_date": "2026-09-21",
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
   "d1_databases": [{ "binding": "DB", "database_name": "smm-explore-demo", "database_id": "d8b13a14-e2a5-485a-9dc8-28ad32356c1f" }],
-  "vars": { "MOSOO_API_BASE": "https://cloud.mosoo.ai/api/v1", "AGENT_CALLS_ENABLED": "false", "BUILD_VERSION": "smm-demo-v1" },
+  "vars": { "MOSOO_API_BASE": "https://cloud.mosoo.ai/api/v1", "AGENT_CALLS_ENABLED": "true", "AGENT_CASE_LIMIT": "1", "BUILD_VERSION": "smm-demo-v1" },
   "observability": { "enabled": true }
 }

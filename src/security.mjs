@@ -1,3 +1,4 @@
+import {sanitizePageEvidence} from './page-evidence.mjs';
 export async function digest(value) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))].map(v => v.toString(16).padStart(2, '0')).join('');
 }
@@ -21,7 +22,8 @@ export function sanitizeCheckpoint(data) {
     browser: text(data.browser), timezone: text(data.timezone,80),
     requestId: /^[a-f0-9-]{36}$/.test(data.requestId || '') ? data.requestId : null,
     observedError: data.requestId ? '报表导出失败' : null,
-    screenshot: { status: 'not_collected', reason: 'Native browser capture is not connected yet' },
+    pageEvidence:sanitizePageEvidence(data.pageEvidence),
+    screenshot: { status: 'not_collected', reason: 'Optional browser capture; page SDK evidence is available separately' },
     evidenceType: 'application-instrumentation',
     note: 'Browser-supplied observations are untrusted; server logs are independently scoped and correlated.'
   };

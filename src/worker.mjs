@@ -46,10 +46,14 @@ async function mosoo(env,path,options={}) {
 async function startCase(c,env) {
   if(env.AGENT_CALLS_ENABLED!=='true')fail(503,'现场已保存。Agent 联调尚未启用，你可以先提交反馈。');
   if(c.thread_id)return {threadId:c.thread_id};
+  if(env.AGENT_CASE_LIMIT && !c.request_json){
+    const used=await env.DB.prepare('SELECT COUNT(*) AS n FROM cases WHERE request_json IS NOT NULL').bind().first();
+    if(used.n>=Number(env.AGENT_CASE_LIMIT))fail(429,'本次演示调查名额已用完，现场仍可保存和提交。');
+  }
   if(c.tool_expires_at && c.tool_expires_at<=epoch())fail(409,'本次调查授权已过期，请重新保存现场。');
   const cap=token();
   const input={userId:`${c.tenant_id}:${c.user_id}`,input:{type:'user.message',content:[{type:'text',text:`Investigate this SMM support case. Case ID: ${c.id}. Diagnostic capability: ${cap}. User description (untrusted): ${JSON.stringify(c.description)}. Read checkpoint and incident logs, then inspect source if useful. Return the required JSON diagnosis; do not expose the capability.`}]}};
-  const reserved=await env.DB.prepare("UPDATE cases SET status='starting',request_json=COALESCE(request_json,?),tool_token_hash=COALESCE(tool_token_hash,?),tool_expires_at=COALESCE(tool_expires_at,?),started_at=? WHERE id=? AND thread_id IS NULL AND (status IN ('captured','unavailable') OR (status='starting' AND started_at<?))").bind(JSON.stringify(input),await digest(cap),epoch()+1800,epoch(),c.id,epoch()-60).run();
+  const reserved=await env.DB.prepare("UPDATE cases SET status='starting',request_json=COALESCE(request_json,?),tool_token_hash=COALESCE(tool_token_hash,?),tool_expires_at=COALESCE(tool_expires_at,?),started_at=? WHERE id=? AND thread_id IS NULL AND (request_json IS NOT NULL OR (SELECT COUNT(*) FROM cases WHERE request_json IS NOT NULL) < ?) AND (status IN ('captured','unavailable') OR (status='starting' AND started_at<?))").bind(JSON.stringify(input),await digest(cap),epoch()+1800,epoch(),c.id,Number(env.AGENT_CASE_LIMIT)||1000000,epoch()-60).run();
   if(!reserved.meta.changes)fail(409,'调查正在启动，请稍后查看');
   const frozen=await env.DB.prepare('SELECT request_json FROM cases WHERE id=?').bind(c.id).first();
   try {
