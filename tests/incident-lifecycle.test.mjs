@@ -30,6 +30,10 @@ test('image ownership and developer tenant boundaries are enforced',async()=>{
   assert.equal((await call(route+'/evidence','other',fixture)).status,404);
   assert.equal((await call(route+'/image','owner')).status,200);
   assert.equal((await call(route+'/image','founder')).status,200);
+  await call(route+'/submit','owner',{description:'Screenshot acceptance fixture'});
+  const inbox=await (await call('/api/team/cases','founder')).json();
+  assert.equal(inbox.cases.find(item=>item.id===c.id).hasScreenshot,true);
+  assert.equal((await (await call('/api/team/cases','outsider')).json()).cases.length,0);
  }finally{db.close();}
 });
 test('retry preserves exact request and capability; final output excludes developer details and revokes access',async()=>{

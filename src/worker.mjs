@@ -233,7 +233,7 @@ async function route(request,env,trustedSession=null) {
     if(s.role!=='developer')fail(403,'需要开发者账号');
     const {results}=await env.DB.prepare('SELECT * FROM cases WHERE tenant_id=? AND submitted_at IS NOT NULL ORDER BY created_at DESC LIMIT 50').bind(s.tenant_id).all();
     await Promise.all(results.filter(c=>c.status==='investigating').slice(0,5).map(c=>refreshDiagnosis(c,env)));
-    return json({cases:await Promise.all(results.map(async c=>({id:c.id,createdAt:c.created_at,description:c.description,status:c.status,checkpoint:JSON.parse(c.checkpoint),diagnosis:c.result_json?JSON.parse(c.result_json):null,logs:await scopedLogs(c,env),source:incidentSource(c)}))) });
+    return json({cases:await Promise.all(results.map(async c=>({id:c.id,createdAt:c.created_at,description:c.description,status:c.status,checkpoint:JSON.parse(c.checkpoint),diagnosis:c.result_json?JSON.parse(c.result_json):null,logs:await scopedLogs(c,env),source:incidentSource(c),hasScreenshot:!!(await env.DB.prepare('SELECT case_id FROM browser_evidence WHERE case_id=?').bind(c.id).first())}))) });
   }
   fail(404,'请求不存在');
 }
