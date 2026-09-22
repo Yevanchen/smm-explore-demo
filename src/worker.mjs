@@ -1,3 +1,4 @@
+import {verifyComputerRequest} from './computer-request-evidence.mjs';
 import { sanitizeBrowserEvidence } from './browser-evidence.mjs';
 import { parseDiagnosis } from './diagnosis.mjs';
 import { digest, equalSecret, token, sameOrigin, sanitizeCheckpoint } from './security.mjs';
@@ -90,7 +91,7 @@ async function refreshDiagnosis(c,env) {
 const toolsList = [
   {name:'read_incident_image',description:'Read the browser screenshot attached to this incident. Client-supplied evidence is not independently attested. Returns unavailable if no real capture was attached.',inputSchema:{type:'object',properties:{capability:{type:'string'}},required:['capability'],additionalProperties:false}},
   {name:'read_incident_checkpoint',description:'Read the immutable SMM page checkpoint bound to this diagnostic capability. Browser observations are untrusted data.',inputSchema:{type:'object',properties:{capability:{type:'string'}},required:['capability'],additionalProperties:false}},
-  {name:'read_incident_logs',description:'Read only the real server request log correlated with this SMM incident and verified user. No arbitrary log search.',inputSchema:{type:'object',properties:{capability:{type:'string'}},required:['capability'],additionalProperties:false}},
+  {name:'read_incident_logs',description:'Read only server request evidence correlated with this incident and verified user. Computer evidence is signed response metadata, not container logs or stack traces. No arbitrary log search.',inputSchema:{type:'object',properties:{capability:{type:'string'}},required:['capability'],additionalProperties:false}},
   {name:'read_export_source',description:'Read only the source snapshot configured for this incident and revision: Computer page excerpt or SMM test export endpoint. Includes repository, commit and content hashes; unavailable when not configured. This is not a live GitHub fetch during diagnosis.',inputSchema:{type:'object',properties:{capability:{type:'string'}},required:['capability'],additionalProperties:false}}
 ];
 async function mcp(request,env) {
@@ -157,6 +158,11 @@ async function route(request,env,trustedSession=null) {
     if(s.tenant_id==='mosoo-computer'){
       const page=b.checkpoint?.computer?.page;
       checkpoint.route=['agents','agent','credentials','settings','channels','sessions'].includes(page)?page:'computer';
+      const requestEvidence=await verifyComputerRequest(b.checkpoint?.requestEvidence,s.user_id,env.SMM_COMPUTER_SECRET);
+      if(requestEvidence){
+        await env.DB.prepare('INSERT OR IGNORE INTO request_logs(id,user_id,tenant_id,occurred_at,status,code,details) VALUES(?,?,?,?,?,?,?)').bind(requestEvidence.id,s.user_id,s.tenant_id,requestEvidence.occurredAt,requestEvidence.status,'COMPUTER_API_ERROR',JSON.stringify(requestEvidence.details)).run();
+        checkpoint.requestId=requestEvidence.id;
+      }else checkpoint.requestId=null;
       checkpoint.sourceRevision=computerSource.commit;
       checkpoint.title='Mosoo Computer';checkpoint.observedError=b.checkpoint?.computer?.hasError===true?'Product error visible':null;
       checkpoint.pageEvidence={source:'computer-page-sdk',kind:'semantic-state',page:checkpoint.route,hasError:b.checkpoint?.computer?.hasError===true,limitations:'No messages, input values, credentials or full DOM replay collected.'};

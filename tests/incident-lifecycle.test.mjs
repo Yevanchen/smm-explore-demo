@@ -98,3 +98,19 @@ test('Computer capability reads only the recorded page source and loses access w
   assert.equal((await(await tool()).json()).result.isError,true);
  }finally{globalThis.fetch=originalFetch;db.close();}
 });
+
+test('signed Computer receipt is stored for its owner and scoped to the incident tool',async()=>{
+ const {createHmac,randomUUID}=await import('node:crypto');
+ const {db,env}=await setup(),originalFetch=globalThis.fetch;env.SMM_COMPUTER_SECRET='test-signer';let capability;
+ const internal=(user,body)=>worker.fetch(new Request('https://smm.test/internal/computer/cases',{method:'POST',headers:{Authorization:'Bearer test-signer','x-smm-user-id':user,'Content-Type':'application/json'},body:JSON.stringify(body)}),env);
+ const record={id:randomUUID(),route:'/api/agents/:id',method:'GET',status:404,occurredAt:new Date().toISOString(),durationMs:42};
+ const payload=btoa(JSON.stringify(record)),requestEvidence=payload+'.'+createHmac('sha256','test-signer').update(`computer-request-evidence:v1\nowner\n${payload}`).digest('hex');
+ try{
+  const c=await(await internal('owner',{checkpoint:{computer:{page:'agents'},requestEvidence}})).json();assert.equal(c.checkpoint.requestId,record.id);
+  const other=await(await internal('other',{checkpoint:{computer:{page:'agents'},requestEvidence,requestId:record.id}})).json();assert.equal(other.checkpoint.requestId,null);
+  globalThis.fetch=async(url,options)=>{capability=JSON.parse(options.body).input.content[0].text.match(/Diagnostic capability: ([a-f0-9-]{72})/)[1];return Response.json({thread:{id:'receipt-test-thread'}});};
+  const start=await worker.fetch(new Request(`https://smm.test/internal/computer/cases/${c.id}/start`,{method:'POST',headers:{Authorization:'Bearer test-signer','x-smm-user-id':'owner','Content-Type':'application/json'},body:'{}'}),env);assert.equal(start.status,200);
+  const response=await worker.fetch(new Request('https://smm.test/mcp',{method:'POST',headers:{Authorization:'Bearer test-only-mcp','Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'read_incident_logs',arguments:{capability}}})}),env);
+  const logs=JSON.parse((await response.json()).result.content[0].text);assert.equal(logs.length,1);assert.equal(logs[0].id,record.id);assert.equal(logs[0].details.origin,'computer-server-signed-response');
+ }finally{globalThis.fetch=originalFetch;db.close();}
+});
