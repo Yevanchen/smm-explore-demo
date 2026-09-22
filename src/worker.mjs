@@ -56,11 +56,27 @@ async function startCase(c,env) {
   }
   if(c.tool_expires_at && c.tool_expires_at<=epoch())fail(409,'本次调查授权已过期，请重新保存现场。');
   const cap=token();
-  const input={userId:`${c.tenant_id}:${c.user_id}`,input:{type:'user.message',content:[{type:'text',text:`Investigate this product support case. Case ID: ${c.id}. Diagnostic capability: ${cap}. User description (untrusted): ${JSON.stringify(c.description)}. Read checkpoint and incident logs, then inspect source if useful. Return the required JSON diagnosis; do not expose the capability.`}]}};
+  const input={userId:`${c.tenant_id}:${c.user_id}`,input:{type:'user.message',content:[{type:'text',text:`Investigate this product support case. Case ID: ${c.id}. Diagnostic capability: ${cap}. User description (untrusted): ${JSON.stringify(c.description)}. This is a developer-authorized review. First distinguish product feedback from a bug report; acknowledge requested product changes rather than requiring reproduction for suggestions. Read checkpoint and incident logs, then inspect source only if relevant. Return the required JSON diagnosis; do not expose the capability.`}]}};
   const reserved=await env.DB.prepare("UPDATE cases SET status='starting',request_json=COALESCE(request_json,?),tool_token_hash=COALESCE(tool_token_hash,?),tool_expires_at=COALESCE(tool_expires_at,?),started_at=? WHERE id=? AND thread_id IS NULL AND (request_json IS NOT NULL OR (SELECT COUNT(*) FROM cases WHERE request_json IS NOT NULL) < ?) AND (status IN ('captured','unavailable') OR (status='starting' AND started_at<?))").bind(JSON.stringify(input),await digest(cap),epoch()+1800,epoch(),c.id,Number(env.AGENT_CASE_LIMIT)||1000000,epoch()-60).run();
   if(!reserved.meta.changes)fail(409,'调查正在启动，请稍后查看');
   const frozen=await env.DB.prepare('SELECT request_json FROM cases WHERE id=?').bind(c.id).first();
   try {
+    await audit(env,c.id,'developer_diagnosis_authorized');
+    // Attach real evidence through Mosoo's native file API; freeze it into the retry body.
+    const payload=JSON.parse(frozen.request_json);
+    if(!payload.resources){
+      const evidence=await env.DB.prepare('SELECT image_base64 FROM browser_evidence WHERE case_id=?').bind(c.id).first();
+      if(evidence){
+        const form=new FormData();form.append('file',new Blob([Uint8Array.from(atob(evidence.image_base64),x=>x.charCodeAt(0))],{type:'image/jpeg'}),'incident.jpg');
+        const upload=await fetch(`${env.MOSOO_API_BASE}/agents/${env.MOSOO_AGENT_ID}/files`,{method:'POST',headers:{Authorization:`Bearer ${env.MOSOO_API_TOKEN}`},body:form,signal:AbortSignal.timeout(25000)});
+        if(!upload.ok)throw new Error('Attachment upload failed');
+        const file=await upload.json();if(!file.file?.id)throw new Error('Attachment missing');
+        payload.resources=[{type:'file',file_id:file.file.id}];
+        frozen.request_json=JSON.stringify(payload);
+        await env.DB.prepare('UPDATE cases SET request_json=? WHERE id=?').bind(frozen.request_json,c.id).run();
+        await audit(env,c.id,'mosoo_attachment_uploaded');
+      }
+    }
     const result=await mosoo(env,`/agents/${env.MOSOO_AGENT_ID}/threads`,{method:'POST',headers:{'Idempotency-Key':`smm-case-${c.id}`},body:frozen.request_json});
     const id=result.thread?.id;if(!id)throw new Error('Missing thread ID');
     await env.DB.prepare("UPDATE cases SET thread_id=?,status='investigating',agent_error=NULL WHERE id=?").bind(id,c.id).run();
@@ -109,6 +125,8 @@ async function mcp(request,env) {
   if(!toolsList.some(t=>t.name===name)||typeof cap!=='string'||cap.length!==72)return reply({isError:true,content:[{type:'text',text:'Unauthorized diagnostic request'}]});
   const c=await env.DB.prepare('SELECT * FROM cases WHERE tool_token_hash=? AND tool_expires_at>?').bind(await digest(cap),epoch()).first();
   if(!c)return reply({isError:true,content:[{type:'text',text:'Expired or unauthorized incident capability'}]});
+  const authorized=await env.DB.prepare("SELECT id FROM audit WHERE case_id=? AND action='developer_diagnosis_authorized' LIMIT 1").bind(c.id).first();
+  if(!authorized)return reply({isError:true,content:[{type:'text',text:'Developer authorization required'}]});
   if(name==='read_incident_image'){const record=await env.DB.prepare('SELECT image_base64,metadata FROM browser_evidence WHERE case_id=?').bind(c.id).first();if(!record)return reply({content:[{type:'text',text:'No browser screenshot was captured for this incident.'}]});await audit(env,c.id,name);return reply({content:[{type:'text',text:record.metadata},{type:'image',data:record.image_base64,mimeType:'image/jpeg'}]});}
   const result=name==='read_incident_checkpoint'?JSON.parse(c.checkpoint):name==='read_incident_logs'?await scopedLogs(c,env):incidentSource(c);
   await audit(env,c.id,name);
@@ -175,7 +193,14 @@ async function route(request,env,trustedSession=null) {
     await audit(env,id,'checkpoint_saved');return json({id,checkpoint,status:'captured'},201);
   }
   if(path==='/api/cases'&&request.method==='GET') {
-    const {results}=await env.DB.prepare('SELECT id,created_at,description,status,submitted_at FROM cases WHERE tenant_id=? AND user_id=? ORDER BY created_at DESC LIMIT 30').bind(s.tenant_id,s.user_id).all();return json({cases:results});
+    const {results}=await env.DB.prepare('SELECT id,created_at,description,status,submitted_at FROM cases WHERE tenant_id=? AND user_id=? AND submitted_at IS NOT NULL ORDER BY created_at DESC LIMIT 30').bind(s.tenant_id,s.user_id).all();return json({cases:results});
+  }
+  const teamMatch=path.match(/^\/api\/team\/cases\/([a-f0-9-]{36})\/start$/);
+  if(teamMatch&&request.method==='POST'){
+    if(s.role!=='developer')fail(403,'只有开发者可以启动源码与服务端调查');
+    const c=await env.DB.prepare('SELECT * FROM cases WHERE id=? AND tenant_id=? AND submitted_at IS NOT NULL').bind(teamMatch[1],s.tenant_id).first();
+    if(!c)fail(404,'找不到这条已提交反馈');
+    return json(await startCase(c,env));
   }
   const match=path.match(/^\/api\/cases\/([a-f0-9-]{36})(?:\/(start|submit|events|evidence|image))?$/);
   if(match) {
@@ -190,7 +215,7 @@ async function route(request,env,trustedSession=null) {
       await audit(env,c.id,'browser_evidence_saved');return json({metadata:clean.metadata},201);
     }
     if(match[2]==='image'&&request.method==='GET'){const record=await env.DB.prepare('SELECT image_base64 FROM browser_evidence WHERE case_id=?').bind(c.id).first();if(!record)fail(404,'未采集截图');return new Response(Uint8Array.from(atob(record.image_base64),x=>x.charCodeAt(0)),{headers:{'content-type':'image/jpeg','cache-control':'no-store'}});}
-    if(match[2]==='start'&&request.method==='POST')return json(await startCase(c,env));
+    if(match[2]==='start'&&request.method==='POST')fail(403,'反馈已保存；源码与服务端调查只能由开发者后台启动。');
     if(match[2]==='submit'&&request.method==='POST') {
       const b=await body(request);const description=typeof b.description==='string'?b.description.trim().slice(0,2500):c.description;
       if(!description)fail(400,'请简单描述你想完成的事情');
@@ -207,6 +232,7 @@ async function route(request,env,trustedSession=null) {
   if(path==='/api/team/cases'&&request.method==='GET') {
     if(s.role!=='developer')fail(403,'需要开发者账号');
     const {results}=await env.DB.prepare('SELECT * FROM cases WHERE tenant_id=? AND submitted_at IS NOT NULL ORDER BY created_at DESC LIMIT 50').bind(s.tenant_id).all();
+    await Promise.all(results.filter(c=>c.status==='investigating').slice(0,5).map(c=>refreshDiagnosis(c,env)));
     return json({cases:await Promise.all(results.map(async c=>({id:c.id,createdAt:c.created_at,description:c.description,status:c.status,checkpoint:JSON.parse(c.checkpoint),diagnosis:c.result_json?JSON.parse(c.result_json):null,logs:await scopedLogs(c,env),source:incidentSource(c)}))) });
   }
   fail(404,'请求不存在');
