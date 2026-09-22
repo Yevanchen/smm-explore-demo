@@ -7,3 +7,5 @@ secrets*.json
 HANDOFF.md
 local-state/
 src/report-source.mjs
+
+src/computer-source-data.mjs

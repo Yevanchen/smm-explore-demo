@@ -81,3 +81,20 @@ test('Computer service integration validates secret, isolates owners and does no
   assert.equal((await internal('/team/cases','owner')).status,404);
  }finally{db.close();}
 });
+
+test('Computer capability reads only the recorded page source and loses access when the event capability expires',async()=>{
+ const {db,env}=await setup(),originalFetch=globalThis.fetch;env.SMM_COMPUTER_SECRET='integration-test-only';let capability;
+ const internal=(path,body)=>worker.fetch(new Request('https://smm.test/internal/computer'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer integration-test-only','x-smm-user-id':'owner','Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}),env);
+ globalThis.fetch=async(url,options)=>{capability=JSON.parse(options.body).input.content[0].text.match(/Diagnostic capability: ([a-f0-9-]{72})/)[1];return Response.json({thread:{id:'source-test-thread'}});};
+ const tool=()=>worker.fetch(new Request('https://smm.test/mcp',{method:'POST',headers:{Authorization:'Bearer test-only-mcp','Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'read_export_source',arguments:{capability}}})}),env);
+ try{
+  const c=await(await internal('/cases',{checkpoint:{computer:{page:'agents'},sourceRevision:'client-spoof'}})).json();
+  assert.notEqual(c.checkpoint.sourceRevision,'client-spoof');
+  assert.equal((await internal(`/cases/${c.id}/start`,{})).status,200);
+  const r=await(await tool()).json();const source=JSON.parse(r.result.content[0].text);
+  assert.equal(source.status,'available');assert.equal(source.repository,'Yevanchen/mosoo-computer');assert.equal(source.commit,c.checkpoint.sourceRevision);
+  assert.equal(source.files[0].path,'src/client.tsx');assert.match(source.files[0].code,/function AgentsPage/);
+  await env.DB.prepare('UPDATE cases SET tool_expires_at=0 WHERE id=?').bind(c.id).run();
+  assert.equal((await(await tool()).json()).result.isError,true);
+ }finally{globalThis.fetch=originalFetch;db.close();}
+});

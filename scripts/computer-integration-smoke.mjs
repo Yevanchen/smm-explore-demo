@@ -8,6 +8,6 @@ assert.equal(response.status,201);const c=await response.json();assert.equal(c.c
 assert.equal((await internal(`/cases/${c.id}`,'unrelated-user')).status,404);
 assert.equal((await internal(`/cases/${c.id}/submit`,'integration-acceptance',{description:'Integration acceptance test — not a real user incident'})).status,200);
 const login=await fetch(base+'/api/login',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify({username:'founder',password:secret.FOUNDER_PASSWORD})});assert.equal(login.status,200);const cookie=login.headers.get('set-cookie').split(';')[0];
-const inbox=await(await fetch(base+'/api/team/cases',{headers:{Cookie:cookie}})).json();const found=inbox.cases.find(v=>v.id===c.id);assert.ok(found);assert.equal(found.source.status,'unavailable');assert.equal(found.logs.length,0);
+const inbox=await(await fetch(base+'/api/team/cases',{headers:{Cookie:cookie}})).json();const found=inbox.cases.find(v=>v.id===c.id);assert.ok(found);assert.equal(found.source.status,'available');assert.equal(found.source.repository,'Yevanchen/mosoo-computer');assert.equal(found.source.commit,c.checkpoint.sourceRevision);assert.equal(found.source.files[0].path,'src/client.tsx');assert.equal(found.logs.length,0);
 await fetch(base+'/api/logout',{method:'POST',headers:{Origin:base,Cookie:cookie,'Content-Type':'application/json'},body:'{}'});
-console.log(JSON.stringify({ok:true,caseId:c.id,verified:['computer-context','owner-isolation','developer-inbox','no-fixture-source-or-logs'],modelCalls:0}));
+console.log(JSON.stringify({ok:true,caseId:c.id,verified:['computer-context','owner-isolation','developer-inbox','private-computer-source-provenance','no-fixture-logs'],modelCalls:0}));

@@ -1,0 +1,22 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {resolve} from 'node:path';
+// Only release-receipt source is eligible; never copy an uncommitted working tree.
+const checkout=resolve(process.env.COMPUTER_CHECKOUT||'../mosoo-computer-smm-support');
+const receipt=JSON.parse(readFileSync(resolve(checkout,'deploy/receipts/worker-smm-support.json'),'utf8'));
+if(receipt.status!=='deployed'||!receipt.probes?.health?.ok||!receipt.probes?.session?.ok)throw Error('Verified Computer deployment receipt required');
+const commit=receipt.source.commit;
+if(!/^[a-f0-9]{40}$/.test(commit))throw Error('Invalid release commit');
+const path='src/client.tsx';
+const code=execFileSync('git',['show',`${commit}:${path}`],{cwd:checkout,encoding:'utf8'});
+const remote=execFileSync('gh',['api',`repos/Yevanchen/mosoo-computer/contents/${path}?ref=${commit}`,'-H','Accept: application/vnd.github.raw+json'],{encoding:'utf8',maxBuffer:4*1024*1024});
+if(remote!==code)throw Error('Private GitHub content differs from release source');
+const lines=code.split('\n');
+const start=lines.findIndex(l=>l.startsWith('function AgentsPage('));
+const end=lines.findIndex((l,i)=>i>start&&l.startsWith('function CreateAgentDialog('));
+if(start<0||end<=start||end-start>150)throw Error('Agents page source boundaries changed; review scope before packaging');
+const excerpt=lines.slice(start,end).join('\n');
+const snapshot={repository:'Yevanchen/mosoo-computer',commit,workerVersion:receipt.workerVersion.id,origin:'private-github-verified-release-snapshot',verifiedAt:new Date().toISOString(),pages:{agents:[{path,startLine:start+1,endLine:end,sha256:createHash('sha256').update(excerpt).digest('hex'),fileSha256:createHash('sha256').update(code).digest('hex'),code:excerpt}]}};
+writeFileSync(new URL('../src/computer-source-data.mjs',import.meta.url),`export const computerSource = ${JSON.stringify(snapshot)};\n`);
+console.log(JSON.stringify({repository:snapshot.repository,commit,workerVersion:snapshot.workerVersion,pages:Object.keys(snapshot.pages),githubVerified:true}));
