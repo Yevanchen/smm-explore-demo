@@ -1,6 +1,87 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SMM · 产品支持后台</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css"><script type="module" src="/admin.js"></script></head>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#FBFBFC">
+<meta name="description" content="Mosoo Computer 产品支持后台：查看用户反馈、证据与调查进展。">
+<title>SMM · 产品支持后台</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/admin.css">
+<script type="module" src="/admin.js"></script>
+</head>
 <body>
-<section id="admin-login" class="login-layout"><div class="login-story"><a class="wordmark" href="/">smm<span>●</span></a><div><p class="eyebrow">PRODUCT SUPPORT / DEVELOPER CONSOLE</p><h1>从用户现场，<br><em>找到下一步。</em></h1><p class="story-note">连接 Mosoo Computer 的用户反馈、<br>调查证据与产品改进。</p></div><span class="edition">开发者后台</span></div><div class="login-form-wrap"><div class="login-form-inner"><h2>登录支持后台</h2><p class="muted">终端用户直接在 Mosoo Computer 内联系支持。</p><form id="admin-form"><label>开发者密码<input name="password" type="password" autocomplete="current-password" required></label><button class="primary full">登录后台 ↗</button><p id="login-message" role="alert"></p></form><p><a href="https://computer.mosoo.ai/">打开 Mosoo Computer ↗</a></p></div></div></section>
-<div id="admin-workspace" hidden><aside class="sidebar"><a class="wordmark" href="/">smm<span>●</span></a><div class="workspace-label">Mosoo Computer<small>产品支持后台</small></div><nav><a href="#inbox">反馈收件箱</a><a href="#connection">接入与诊断配置</a></nav><div class="sidebar-bottom"><button id="admin-logout">退出登录</button></div></aside><main class="main"><header class="topbar">开发者后台 / Mosoo Computer</header><section class="page"><p class="eyebrow">PRODUCT FEEDBACK</p><h1>从现场开始理解问题</h1><p class="muted">用户在 Computer 内提报，在这里查看证据与调查进展。</p><section id="connection" class="record"><h2>接入与诊断配置</h2><p>用户入口：<a href="https://computer.mosoo.ai/">computer.mosoo.ai</a> · 复用 Computer 登录身份</p><p>调查：Mosoo Agent API / GPT-5.6 Luna</p><p>上报后自动开始 Explore，Agent 按需请求浏览器截图。仅开发者可启动额外的源码调查。服务端日志按当前用户与失败请求隔离，通过 Cloudflare Tail Worker 采集；不包含容器全量日志。源码目前为只读发布片段。</p></section><div id="inbox" class="record-list"></div><p id="admin-message" role="status"></p></section></main></div>
-</body></html>
+<a class="skip-link" href="#main">跳到主内容</a>
+
+<section id="admin-boot" class="gate" aria-busy="true">
+  <div class="gate-panel boot" role="status">
+    <span class="wordmark">SMM<small>产品支持后台</small></span>
+    <strong>正在检查登录状态…</strong>
+    <small>只读取当前会话，不会发起新的登录。</small>
+  </div>
+</section>
+
+<section id="admin-login" class="gate" hidden>
+  <div class="gate-panel">
+    <span class="wordmark">SMM<small>产品支持后台</small></span>
+    <div>
+      <h1>登录开发者后台</h1>
+      <p class="muted">终端用户在 Mosoo Computer 内提交反馈；这里查看现场证据、Explore 结果与源码调查。</p>
+    </div>
+    <form id="admin-form" novalidate>
+      <label>开发者密码<input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="full" type="submit">登录</button>
+      <p id="login-message" class="error" role="alert"></p>
+    </form>
+    <p class="gate-foot">用户入口在 <a href="https://computer.mosoo.ai/" rel="noopener">computer.mosoo.ai</a>，无需在此登录。</p>
+  </div>
+</section>
+
+<div id="admin-workspace" hidden>
+  <header class="topbar">
+    <a class="wordmark" href="#inbox">SMM<small>Mosoo Computer 支持</small></a>
+    <nav aria-label="主导航">
+      <a href="#inbox" data-view="inbox">反馈收件箱</a>
+      <a href="#connection" data-view="connection">接入与诊断</a>
+    </nav>
+    <div class="topbar-right">
+      <small>开发者账号 · 服务端验证</small>
+      <button id="admin-logout" class="ghost" type="button">退出登录</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="inbox-view" class="inbox" aria-label="反馈收件箱">
+      <aside class="ticket-list">
+        <div class="list-head">
+          <h1>反馈收件箱</h1>
+          <small id="inbox-count"></small>
+        </div>
+        <div class="list-tools">
+          <label class="sr-only" for="ticket-search">搜索反馈</label>
+          <input id="ticket-search" type="search" placeholder="搜索标题、原文或 ID" autocomplete="off">
+          <div id="ticket-filters" class="filters" role="group" aria-label="按状态筛选"></div>
+        </div>
+        <div class="ticket-scroll">
+          <ol id="ticket-list" aria-label="反馈列表"></ol>
+        </div>
+      </aside>
+      <section id="ticket-detail" class="ticket-detail" aria-label="反馈详情"></section>
+    </section>
+
+    <section id="connection-view" class="page" hidden aria-label="接入与诊断">
+      <h1>接入与诊断</h1>
+      <p class="muted">这些是当前真实生效的边界。空记录、缺失截图或不可用源码都会在收件箱里如实显示，不会被文案抹去。</p>
+      <div class="definition-list">
+        <div class="definition"><span>用户入口</span><div><strong><a href="https://computer.mosoo.ai/" rel="noopener">computer.mosoo.ai</a></strong> 内的支持面板。复用 Computer 登录身份，由 Computer 服务端验证后转发给 SMM；浏览器不传入用户 ID。</div></div>
+        <div class="definition"><span>调查模型</span><div>Mosoo Agent API / GPT-5.6 Luna。</div></div>
+        <div class="definition"><span>自动 Explore</span><div>用户提交反馈后自动开始 Explore；Agent 需要时会请求浏览器截图，用户在线选择标签页授权，可以拒绝。采集完成后立即停止共享。</div></div>
+        <div class="definition"><span>页面证据</span><div>页面 SDK 的语义上下文：页面、是否可见错误、视口、浏览器与时区。不包含聊天内容、输入值、凭据或完整 DOM 回放。</div></div>
+        <div class="definition"><span>服务端日志</span><div>按当前用户与失败请求隔离。Computer 签名的响应元数据（路由、状态、耗时）与通过 Cloudflare Tail Worker 采集的执行日志按同一请求 ID 关联；不包含请求正文、堆栈或容器全量日志。</div></div>
+        <div class="definition"><span>源码调查</span><div>仅开发者可启动，独立于用户侧 Explore。读取与该反馈版本匹配的只读发布片段，不是诊断时的实时 GitHub 读取，也不能证明用户浏览器实际加载的版本。</div></div>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>
