@@ -114,15 +114,15 @@ function ledgerRow(label,stateChip,...body){
  const content=el('div',null,'ledger-body');content.append(...body);row.append(head,content);return row;
 }
 function screenshotRow(c){
- if(!c.hasScreenshot)return ledgerRow('浏览器截图',chip('未收到'),el('p','未收到截图；Agent 需要时会向在线用户请求授权，用户可以拒绝。'));
+ if(!c.hasScreenshot)return ledgerRow('截图附件',chip('未收到'),el('p','未收到截图；用户可在反馈框粘贴图片，或在 Agent 请求时授权采集。'));
  const src=`/api/cases/${c.id}/image`;
  const figure=el('figure',null,'screenshot-figure');
  const link=el('a');link.href=src;link.target='_blank';link.rel='noopener';link.setAttribute('aria-label','在新标签页打开原图');
- const image=el('img');image.src=src;image.alt='用户授权分享的浏览器现场截图';image.loading='lazy';image.className='screenshot';
- const caption=el('figcaption');caption.append(el('span','用户授权的真实浏览器截图，与这条反馈绑定'),el('span','·'),el('a','在新标签页打开原图'));caption.lastChild.href=src;caption.lastChild.target='_blank';caption.lastChild.rel='noopener';
+ const image=el('img');image.src=src;image.alt='用户提供的截图附件';image.loading='lazy';image.className='screenshot';
+ const caption=el('figcaption');caption.append(el('span','用户提供的图片，与这条反馈绑定'),el('span','·'),el('a','在新标签页打开原图'));caption.lastChild.href=src;caption.lastChild.target='_blank';caption.lastChild.rel='noopener';
  image.onerror=()=>{const failed=el('div',null,'screenshot-failed');failed.append(el('span','截图暂时无法加载。'));const retry=el('button','重试','secondary');retry.type='button';retry.onclick=()=>{failed.replaceWith(link);image.src=src+'?retry='+Date.now();};failed.append(retry);link.replaceWith(failed);};
  link.append(image);figure.append(link,caption);
- return ledgerRow('浏览器截图',chip('已收到'),figure,el('p','截图晚于初始上下文采集，不是完整回放。','limits'));
+ return ledgerRow('截图附件',chip('已收到'),figure,el('p','图片可能来自用户粘贴或授权采集；不能据此确认原始拍摄时间，也不是完整回放。','limits'));
 }
 function checkpointRow(c){
  const k=c.checkpoint||{};const page=k.pageEvidence||{};
