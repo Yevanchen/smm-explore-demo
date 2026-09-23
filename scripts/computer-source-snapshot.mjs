@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {resolve} from 'node:path';
 // Only release-receipt source is eligible; never copy an uncommitted working tree.
 const checkout=resolve(process.env.COMPUTER_CHECKOUT||'../mosoo-computer-smm-support');
-const receipt=JSON.parse(readFileSync(resolve(checkout,'deploy/receipts/worker-smm-redesign.json'),'utf8'));
+const receipt=JSON.parse(readFileSync(resolve(checkout,'deploy/receipts/worker-smm-paste.json'),'utf8'));
 if(receipt.status!=='deployed'||!receipt.probes?.health?.ok||!receipt.probes?.session?.ok)throw Error('Verified Computer deployment receipt required');
 const commit=receipt.source.commit;
 if(!/^[a-f0-9]{40}$/.test(commit))throw Error('Invalid release commit');
