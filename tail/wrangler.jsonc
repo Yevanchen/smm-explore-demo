@@ -1,9 +1,10 @@
 {
- "name":"mosoo-computer-support-tail",
- "main":"worker.mjs",
- "account_id":"2a66b3c81860bc4990156be493151f93",
- "compatibility_date":"2026-09-21",
- "workers_dev":false,
- "preview_urls":false,
- "observability":{"enabled":true}
+  "name": "mosoo-computer-support-tail",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-21",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true
+  }
 }

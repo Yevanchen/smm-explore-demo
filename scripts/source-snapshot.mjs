@@ -9,4 +9,4 @@ try {
   const committed=execFileSync('git',['show',`${commit}:src/report.mjs`],{encoding:'utf8'});
   if(committed!==code)throw new Error('Source differs from committed report endpoint');
 } catch(error) { throw new Error('Commit the report endpoint before building its traceable source snapshot.',{cause:error}); }
-writeFileSync(new URL('../src/report-source.mjs', import.meta.url), `export const source = ${JSON.stringify({ path:'src/report.mjs',sha256,origin:'private-repository-build-snapshot',repository:'Yevanchen/smm-explore-demo',commit,code })};\n`);
+writeFileSync(new URL('../src/report-source.mjs', import.meta.url), `export const source = ${JSON.stringify({ path:'src/report.mjs',sha256,origin:'repository-build-snapshot',repository:'Yevanchen/smm-explore-demo',commit,code })};\n`);

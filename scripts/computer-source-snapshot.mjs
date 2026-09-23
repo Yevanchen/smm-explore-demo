@@ -3,7 +3,12 @@ import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {resolve} from 'node:path';
 // Only release-receipt source is eligible; never copy an uncommitted working tree.
-const checkout=resolve(process.env.COMPUTER_CHECKOUT||'../mosoo-computer-smm-support');
+if(!process.env.COMPUTER_CHECKOUT){
+  writeFileSync(new URL('../src/computer-source-data.mjs',import.meta.url),'export const computerSource = {commit:null,pages:{}};\n');
+  console.log('Private Computer source is not configured; source tools will report unavailable.');
+  process.exit(0);
+}
+const checkout=resolve(process.env.COMPUTER_CHECKOUT);
 const receipt=JSON.parse(readFileSync(resolve(checkout,'deploy/receipts/worker-smm-paste.json'),'utf8'));
 if(receipt.status!=='deployed'||!receipt.probes?.health?.ok||!receipt.probes?.session?.ok)throw Error('Verified Computer deployment receipt required');
 const commit=receipt.source.commit;

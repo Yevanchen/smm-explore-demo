@@ -8,9 +8,13 @@
     "test": "node --test tests/*.test.mjs",
     "db:local": "wrangler d1 execute smm-explore-demo --local --file migrations/0001.sql",
     "deploy": "node scripts/source-snapshot.mjs && node scripts/computer-source-snapshot.mjs && wrangler deploy",
-    "source:computer": "node scripts/computer-source-snapshot.mjs"
+    "source:computer": "node scripts/computer-source-snapshot.mjs",
+    "source:prepare": "node scripts/source-snapshot.mjs && node scripts/computer-source-snapshot.mjs",
+    "pretest": "npm run source:prepare",
+    "predev": "npm run source:prepare"
   },
   "devDependencies": {
     "wrangler": "4.136.1"
-  }
+  },
+  "license": "MIT"
 }

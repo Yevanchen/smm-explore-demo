@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import worker from '../src/worker.mjs';
+import {computerSource} from '../src/computer-source-data.mjs';
 import {digest,token} from '../src/security.mjs';
 async function setup(){
  const db=new DatabaseSync(':memory:');
@@ -88,6 +89,9 @@ test('Computer service integration validates secret, isolates owners and does no
 });
 
 test('Computer capability reads only the recorded page source and loses access when the event capability expires',async()=>{
+ const previousSnapshot=structuredClone(computerSource);
+ // Synthetic source fixture, never private production code.
+ Object.assign(computerSource,{repository:'Yevanchen/mosoo-computer',commit:'test-release',pages:{agents:[{path:'src/client.tsx',code:'function AgentsPage() { return null; }'}]}});
  const {db,env,devStart}=await setup(),originalFetch=globalThis.fetch;env.SMM_COMPUTER_SECRET='integration-test-only';let capability;
  const internal=(path,body)=>worker.fetch(new Request('https://smm.test/internal/computer'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer integration-test-only','x-smm-user-id':'owner','Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}),env);
  globalThis.fetch=async(url,options)=>{capability=JSON.parse(options.body).input.content[0].text.match(/Diagnostic capability: ([a-f0-9-]{72})/)[1];return Response.json({thread:{id:'source-test-thread'}});};
@@ -103,7 +107,7 @@ test('Computer capability reads only the recorded page source and loses access w
   assert.equal(source.files[0].path,'src/client.tsx');assert.match(source.files[0].code,/function AgentsPage/);
   await env.DB.prepare('UPDATE cases SET tool_expires_at=0 WHERE id=?').bind(c.id).run();
   assert.equal((await(await tool()).json()).result.isError,true);
- }finally{globalThis.fetch=originalFetch;db.close();}
+ }finally{for(const key of Object.keys(computerSource))delete computerSource[key];Object.assign(computerSource,previousSnapshot);globalThis.fetch=originalFetch;db.close();}
 });
 
 test('signed Computer receipt is stored for its owner and scoped to the incident tool',async()=>{

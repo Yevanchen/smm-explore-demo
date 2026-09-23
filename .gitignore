@@ -9,3 +9,8 @@ local-state/
 src/report-source.mjs
 
 src/computer-source-data.mjs
+
+wrangler.production.jsonc
+tail/wrangler.production.jsonc
+*.pem
+*.key
