@@ -251,7 +251,7 @@ async function route(request,env,trustedSession=null,ctx=null) {
       if(input.declined===true&&captureOpen){await env.DB.prepare('UPDATE cases SET screenshot_declined_at=? WHERE id=?').bind(epoch(),c.id).run();return json({declined:true});}
       const clean=sanitizeBrowserEvidence(input);if(!clean)fail(400,'浏览器证据格式不正确');
       const relatedId=JSON.parse(c.checkpoint).requestId;clean.metadata.network=clean.metadata.network.filter(event=>relatedId&&event.requestId===relatedId);
-      const saved=await env.DB.prepare('INSERT OR IGNORE INTO browser_evidence(case_id,captured_at,metadata,image_base64,received_at) VALUES(?,?,?,?,?)').bind(c.id,clean.metadata.capturedAt,JSON.stringify(clean.metadata),clean.image,now()).run();
+      const saved=await env.DB.prepare('INSERT OR IGNORE INTO browser_evidence(case_id,captured_at,metadata,image_base64,received_at) VALUES(?,?,?,?,?)').bind(c.id,clean.metadata.capturedAt||clean.metadata.uploadedAt,JSON.stringify(clean.metadata),clean.image,now()).run();
       if(!saved.meta.changes){const existing=await env.DB.prepare('SELECT image_base64 FROM browser_evidence WHERE case_id=?').bind(c.id).first();if(existing?.image_base64===clean.image)return json({metadata:clean.metadata});fail(409,'现场截图已经保存，不可覆盖');}
       await audit(env,c.id,'browser_evidence_saved');return json({metadata:clean.metadata},201);
     }
