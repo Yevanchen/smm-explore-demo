@@ -7,7 +7,7 @@ import worker from '../src/worker.mjs';
 import {digest,token} from '../src/security.mjs';
 async function setup(){
  const db=new DatabaseSync(':memory:');
- for(const name of ['0001.sql','0002_diagnosis.sql','0003_browser_evidence.sql','0004_explore_scope.sql'])db.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
+ for(const name of ['0001.sql','0002_diagnosis.sql','0003_browser_evidence.sql','0004_explore_scope.sql','0005_cloudflare_logs.sql'])db.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
  const env={DB:{prepare(sql){const statement=db.prepare(sql);return {bind(...args){return {first:async()=>statement.get(...args)||null,all:async()=>({results:statement.all(...args)}),run:async()=>({meta:statement.run(...args)})};}}}},AGENT_CALLS_ENABLED:'true',MOSOO_API_BASE:'https://mock.invalid/api/v1',MOSOO_AGENT_ID:'test-agent',MOSOO_API_TOKEN:'test-only',SMM_MCP_SECRET:'test-only-mcp',BUILD_VERSION:'test'};
  const cookies={};
  for(const [user,role,tenant]of [['owner','user','one'],['other','user','one'],['founder','developer','one'],['outsider','developer','two']]){
@@ -181,4 +181,22 @@ test('submission starts one Explore; only a private developer review can read so
   const result=await tool(capability,'request_incident_screenshot');
   assert.equal(result.result.content[1].type,'image');
  }finally{globalThis.fetch=originalFetch;db.close();}
+});
+
+test('Cloudflare ingest requires private secret and log tools bind owner, tenant and verified receipt',async()=>{
+ const {db,env,call}=await setup();env.SMM_TAIL_SECRET='tail-test';
+ try{
+  const ingest=secret=>worker.fetch(new Request('https://smm.test/internal/cloudflare/tail',{method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify({records:[]})}),env);
+  assert.equal((await ingest('wrong')).status,401);assert.equal((await ingest('tail-test')).status,200);
+  db.prepare("UPDATE sessions SET tenant_id='mosoo-computer' WHERE user_id IN ('owner','founder')").run();
+  const c=await(await call('/api/cases','owner',{checkpoint:{}})).json();const requestId=crypto.randomUUID();
+  db.prepare('UPDATE cases SET checkpoint=?,submitted_at=? WHERE id=?').run(JSON.stringify({requestId}),'test',c.id);
+  db.prepare('INSERT INTO request_logs VALUES(?,?,?,?,?,?,?)').run(requestId,'owner','mosoo-computer',new Date().toISOString(),404,'ERROR','{}');
+  db.prepare('INSERT INTO cloudflare_logs VALUES(?,?,?,?,?,?)').run(requestId,'mosoo-computer',await digest('other'),new Date().toISOString(),404,'{"origin":"cloudflare-tail-worker"}');
+  assert.equal((await(await call('/api/team/cases','founder')).json()).cases[0].logs.length,1);
+  db.prepare('UPDATE cloudflare_logs SET owner_hash=? WHERE id=?').run(await digest('owner'),requestId);
+  assert.equal((await(await call('/api/team/cases','founder')).json()).cases[0].logs.length,2);
+  db.prepare("UPDATE cloudflare_logs SET tenant_id='other' WHERE id=?").run(requestId);
+  assert.equal((await(await call('/api/team/cases','founder')).json()).cases[0].logs.length,1);
+ }finally{db.close();}
 });

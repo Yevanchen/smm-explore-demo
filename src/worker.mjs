@@ -1,3 +1,4 @@
+import {ingestTail} from './cloudflare-logs.mjs';
 import {verifyComputerRequest} from './computer-request-evidence.mjs';
 import { sanitizeBrowserEvidence } from './browser-evidence.mjs';
 import { parseDiagnosis } from './diagnosis.mjs';
@@ -37,7 +38,12 @@ async function scopedLogs(c,env) {
   const checkpoint=JSON.parse(c.checkpoint);
   if(!checkpoint.requestId)return [];
   const r=await env.DB.prepare('SELECT id,occurred_at,status,code,details FROM request_logs WHERE id=? AND tenant_id=? AND user_id=?').bind(checkpoint.requestId,c.tenant_id,c.user_id).first();
-  return r?[{...r,details:JSON.parse(r.details)}]:[];
+  const logs=r?[{...r,details:JSON.parse(r.details)}]:[];
+  if(c.tenant_id==='mosoo-computer'&&r){
+    const server=await env.DB.prepare('SELECT id,occurred_at,status,details FROM cloudflare_logs WHERE id=? AND tenant_id=? AND owner_hash=?').bind(checkpoint.requestId,c.tenant_id,await digest(c.user_id)).first();
+    if(server)logs.push({...server,code:'CLOUDFLARE_EXECUTION',details:JSON.parse(server.details)});
+  }
+  return logs;
 }
 const incidentSource=c=>c.tenant_id==='mosoo-computer'?selectComputerSource(JSON.parse(c.checkpoint),computerSource):source;
 async function audit(env,id,action){await env.DB.prepare('INSERT INTO audit(case_id,occurred_at,action) VALUES(?,?,?)').bind(id,now(),action).run();}
@@ -109,7 +115,7 @@ const toolsList = [
   {name:'request_incident_screenshot',description:'Ask the current user to authorize a screenshot of their browser tab. Waits up to 45 seconds for the browser response. Only Explore can request capture. The user can decline.',inputSchema:{type:'object',properties:{capability:{type:'string'}},required:['capability'],additionalProperties:false}},
   {name:'read_incident_image',description:'Read the browser screenshot attached to this incident. Client-supplied evidence is not independently attested. Returns unavailable if no real capture was attached.',inputSchema:{type:'object',properties:{capability:{type:'string'}},required:['capability'],additionalProperties:false}},
   {name:'read_incident_checkpoint',description:'Read the immutable SMM page checkpoint bound to this diagnostic capability. Browser observations are untrusted data.',inputSchema:{type:'object',properties:{capability:{type:'string'}},required:['capability'],additionalProperties:false}},
-  {name:'read_incident_logs',description:'Read only server request evidence correlated with this incident and verified user. Computer evidence is signed response metadata, not container logs or stack traces. No arbitrary log search.',inputSchema:{type:'object',properties:{capability:{type:'string'}},required:['capability'],additionalProperties:false}},
+  {name:'read_incident_logs',description:'Read only server request evidence correlated with this incident and verified user. Includes signed response metadata and Cloudflare execution logs when delivered by the private Tail Worker. No arbitrary account search, container stdout or stack traces.',inputSchema:{type:'object',properties:{capability:{type:'string'}},required:['capability'],additionalProperties:false}},
   {name:'read_export_source',description:'Read only the source snapshot configured for this incident and revision: Computer page excerpt or SMM test export endpoint. Includes repository, commit and content hashes; unavailable when not configured. This is not a live GitHub fetch during diagnosis.',inputSchema:{type:'object',properties:{capability:{type:'string'}},required:['capability'],additionalProperties:false}}
 ];
 async function mcp(request,env) {
@@ -151,6 +157,11 @@ async function mcp(request,env) {
 }
 async function route(request,env,trustedSession=null,ctx=null) {
   const url=new URL(request.url),path=url.pathname;
+  if(path==='/internal/cloudflare/tail'){
+    if(request.method!=='POST'||!await equalSecret(request.headers.get('authorization')?.replace(/^Bearer /,''),env.SMM_TAIL_SECRET))fail(401,'Unauthorized');
+    const data=await body(request,50000);
+    return ingestTail(new Request(request.url,{method:'POST',body:JSON.stringify(data)}),env);
+  }
   if(path.startsWith('/internal/computer/')){
     if(!await equalSecret(request.headers.get('authorization')?.replace(/^Bearer /,''),env.SMM_COMPUTER_SECRET))fail(401,'Unauthorized');
     const userId=request.headers.get('x-smm-user-id');

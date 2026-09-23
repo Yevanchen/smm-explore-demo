@@ -16,25 +16,30 @@ async function load(){
  const me=await api('/api/me');if(me.role!=='developer')throw Error('请使用开发者账号登录');
  $('admin-login').hidden=true;$('admin-workspace').hidden=false;
  const {cases}=await api('/api/team/cases');
+ const previous=new Set([...document.querySelectorAll('details[data-key]')].map(d=>d.dataset.key));
  const expanded=new Set([...document.querySelectorAll('details[open][data-key]')].map(d=>d.dataset.key));
  $('inbox').replaceChildren();if(!cases.length)$('inbox').append(el('p','还没有来自 Mosoo Computer 的反馈。'));
  for(const c of cases){
   const article=el('article','');article.className='record';
-  article.append(el('h3',c.description),el('small',`${c.id.slice(0,8).toUpperCase()} · Explore ${statuses[c.status]||c.status} · ${new Date(c.createdAt).toLocaleString()}`));
+  let structured;try{structured=JSON.parse(c.diagnosis?.developerSummary||'null');}catch{}
+  const title=typeof structured?.request==='string'?structured.request:c.description;
+  article.id='ticket-'+c.id;
+  article.append(el('h3',title.length>100?title.slice(0,100)+'…':title),el('small',`${c.id.slice(0,8).toUpperCase()} · ${c.scope==='explore'?'Explore':'历史调查'} ${statuses[c.status]||c.status} · ${new Date(c.createdAt).toLocaleString()}`));
+  const original=el('details','');original.append(el('summary','用户原文'),el('p',c.description));article.append(original);
   const sourceStatus=c.scope==='explore'?c.sourceReview?.status:c.status;
   const start=el('button',sourceStatus==='investigating'?'源码调查中':'启动源码调查');
   start.disabled=['starting','investigating','completed','needs_review'].includes(sourceStatus);
   const error=el('p','');error.setAttribute('role','status');
   start.onclick=async()=>{start.disabled=true;try{await api(`/api/team/cases/${c.id}/start`,{});await load();}catch(e){error.textContent=e.message;start.disabled=false;}};
   article.append(start,error);
-  for(const name of ['浏览器现场','Explore 结果','源码调查','关联请求记录','源码']){
-   const d=el('details','');d.dataset.key=c.id+name;d.open=expanded.has(d.dataset.key);d.append(el('summary',name));
+  for(const name of ['浏览器现场','Explore 结果','源码调查','服务端日志','源码']){
+   const d=el('details','');d.dataset.key=c.id+name;d.open=expanded.has(d.dataset.key)||(!previous.has(d.dataset.key)&&name==='浏览器现场'&&c.hasScreenshot);d.append(el('summary',name));
    if(name==='浏览器现场'){
-    if(c.hasScreenshot){const image=el('img','');image.src=`/api/cases/${c.id}/image`;image.alt='用户授权分享的浏览器现场截图';image.loading='lazy';image.className='incident-screenshot';d.append(image,el('p','截图在初始现场保存后，通过浏览器授权附加。'));}else d.append(el('p','未收到截图；Agent 需要时会向在线用户请求授权。'));
+    if(c.hasScreenshot){const image=el('img','');image.src=`/api/cases/${c.id}/image`;image.alt='用户授权分享的浏览器现场截图';image.loading='lazy';image.className='incident-screenshot';const full=el('a','查看原图');full.href=image.src;full.target='_blank';full.rel='noopener';image.onerror=()=>{image.hidden=true;full.textContent='截图暂时无法加载，点击重试';};d.append(image,full,el('p','用户授权的真实浏览器截图，与这条反馈绑定。'));}else d.append(el('p','未收到截图；Agent 需要时会向在线用户请求授权。'));
     const metadata=el('details','');metadata.append(el('summary','初始页面上下文'),el('pre',JSON.stringify(c.checkpoint,null,2)));d.append(metadata);
    }else if(name==='Explore 结果')renderResult(d,c.diagnosis,c.status,c.agentError);
-   else if(name==='源码调查')renderResult(d,c.sourceReview?.diagnosis,c.sourceReview?.status,c.sourceReview?.error);
-   else if(name==='关联请求记录'){if(c.logs.length)d.append(el('pre',JSON.stringify(c.logs,null,2)));else d.append(el('p','这条反馈没有关联到失败请求。Cloudflare 完整服务端日志尚未接入，空记录不代表服务端没有发生错误。'));}
+   else if(name==='源码调查')renderResult(d,c.scope==='explore'?c.sourceReview?.diagnosis:c.diagnosis,c.scope==='explore'?c.sourceReview?.status:c.status,c.scope==='explore'?c.sourceReview?.error:c.agentError);
+   else if(name==='服务端日志'){if(c.logs.length){for(const log of c.logs){d.append(el('h4',log.details.origin==='cloudflare-tail-worker'?'Cloudflare 执行日志':'服务端响应凭据'),el('pre',JSON.stringify(log,null,2)));}if(!c.logs.some(log=>log.details.origin==='cloudflare-tail-worker'))d.append(el('p','尚未收到对应的 Cloudflare 执行日志；历史请求不会补采，日志也可能延迟送达。'));}else d.append(el('p','这条反馈没有关联到可验证的失败请求。不会扩大范围读取其他用户日志；空记录不代表服务端没有错误。'));}
    else d.append(el('pre',JSON.stringify(c.source,null,2)));
    article.append(d);
   }
