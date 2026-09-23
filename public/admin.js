@@ -217,7 +217,7 @@ async function load(){
  if(state.loadError&&state.cases)$('inbox-count').textContent='刷新失败，显示上次结果';
 }
 async function boot(){
- try{const me=await api('/api/me');if(me.role!=='developer')throw Error('请使用开发者账号登录');showWorkspace();route();await load();}
+ try{const me=await api('/api/me');if(me.role!=='developer')throw Error('请使用开发者账号登录');$('admin-logout').hidden=me.publicDemo===true;$('admin-access-label').textContent=me.publicDemo?'演示模式 · 无需登录':'开发者账号 · 服务端验证';showWorkspace();route();await load();}
  catch{showLogin();}
 }
 $('admin-form').onsubmit=async event=>{
@@ -225,7 +225,7 @@ $('admin-form').onsubmit=async event=>{
  const password=new FormData(event.target).get('password');
  if(!password){$('login-message').textContent='请输入开发者密码。';event.target.password.focus();return;}
  button.disabled=true;
- try{await api('/api/login',{username:'founder',password});const me=await api('/api/me');if(me.role!=='developer')throw Error('请使用开发者账号登录');showWorkspace();route();await load();}
+ try{await api('/api/login',{username:'founder',password});const me=await api('/api/me');if(me.role!=='developer')throw Error('请使用开发者账号登录');$('admin-logout').hidden=me.publicDemo===true;$('admin-access-label').textContent=me.publicDemo?'演示模式 · 无需登录':'开发者账号 · 服务端验证';showWorkspace();route();await load();}
  catch(e){$('login-message').textContent=e.message;}
  finally{button.disabled=false;}
 };

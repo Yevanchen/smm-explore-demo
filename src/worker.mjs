@@ -23,6 +23,11 @@ async function body(request, limit=16000) {
   try { const v=JSON.parse(new TextDecoder().decode(bytes));if(!v||Array.isArray(v)||typeof v!=='object')fail(400,'请求格式不正确');return v; } catch {fail(400,'请求格式不正确');}
 }
 async function session(request,env) {
+  const path=new URL(request.url).pathname;
+  // Explicit public-demo switch, limited to the developer UI's routes.
+  const demoRoute=request.method==='GET'&&(path==='/api/me'||path==='/api/team/cases'||/^\/api\/cases\/[a-f0-9-]{36}\/image$/.test(path))
+    ||request.method==='POST'&&/^\/api\/team\/cases\/[a-f0-9-]{36}\/start$/.test(path);
+  if(env.PUBLIC_DEMO_ADMIN==='true'&&demoRoute)return {user_id:'founder-01',tenant_id:'mosoo-computer',role:'developer',publicDemo:true};
   const match=request.headers.get('cookie')?.match(/(?:^|;\s*)smm_session=([a-f0-9-]{72})(?:;|$)/);
   if(!match) fail(401,'请先登录 SMM');
   const s=await env.DB.prepare('SELECT * FROM sessions WHERE token_hash=? AND expires_at>?').bind(await digest(match[1]),epoch()).first();
@@ -188,7 +193,7 @@ async function route(request,env,trustedSession=null,ctx=null) {
     return json(identity(s),200,{'set-cookie':`smm_session=${t}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${url.protocol==='https:'?'; Secure':''}`});
   }
   const s=trustedSession||await session(request,env);
-  if(path==='/api/me')return json({...identity(s),agentReady:env.AGENT_CALLS_ENABLED==='true'&&!!env.MOSOO_AGENT_ID&&!!env.MOSOO_API_TOKEN});
+  if(path==='/api/me')return json({...identity(s),publicDemo:s.publicDemo===true,agentReady:env.AGENT_CALLS_ENABLED==='true'&&!!env.MOSOO_AGENT_ID&&!!env.MOSOO_API_TOKEN});
   if(path==='/api/logout'&&request.method==='POST') {
     await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(s.token_hash).run();
     return json({ok:true},200,{'set-cookie':'smm_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});

@@ -200,3 +200,22 @@ test('Cloudflare ingest requires private secret and log tools bind owner, tenant
   assert.equal((await(await call('/api/team/cases','founder')).json()).cases[0].logs.length,1);
  }finally{db.close();}
 });
+
+test('public demo only opens developer routes and can be disabled',async()=>{
+ const {db,env,call}=await setup();
+ try{
+  assert.equal((await call('/api/me','anonymous')).status,401);
+  env.PUBLIC_DEMO_ADMIN='true';
+  const me=await (await call('/api/me','anonymous')).json();
+  assert.equal(me.role,'developer');assert.equal(me.publicDemo,true);
+  assert.equal((await call('/api/team/cases','anonymous')).status,200);
+  assert.equal((await call('/api/cases','anonymous',{})).status,401);
+  assert.equal((await worker.fetch(new Request('https://smm.test/mcp',{method:'POST',body:'{}'}),env)).status,401);
+  assert.equal((await worker.fetch(new Request('https://smm.test/internal/computer/cases'),env)).status,401);
+  const start='/api/team/cases/00000000-0000-0000-0000-000000000000/start';
+  assert.equal((await call(start,'anonymous',{})).status,404);
+  assert.equal((await worker.fetch(new Request('https://smm.test'+start,{method:'POST',headers:{Origin:'https://evil.test'},body:'{}'}),env)).status,403);
+  env.PUBLIC_DEMO_ADMIN='false';
+  assert.equal((await call('/api/team/cases','anonymous')).status,401);
+ }finally{db.close();}
+});
