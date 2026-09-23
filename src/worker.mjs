@@ -245,13 +245,14 @@ async function route(request,env,trustedSession=null,ctx=null) {
     if(!c)fail(404,'找不到这条反馈');
     if(match[2]==='evidence'&&request.method==='POST'){
       const captureOpen=c.investigation_scope==='explore'&&c.screenshot_requested_at&&epoch()-c.screenshot_requested_at<45&&c.tool_expires_at>epoch();
-      if(!captureOpen&&(c.status!=='captured'||epoch()-Math.floor(Date.parse(c.created_at)/1000)>300))fail(409,'现场采集窗口已结束');
       const input=await body(request,370000);
+      const draftUpload=input.source==='user-uploaded-image'&&c.status==='captured'&&!c.submitted_at;
+      if(!captureOpen&&!draftUpload&&(c.status!=='captured'||epoch()-Math.floor(Date.parse(c.created_at)/1000)>300))fail(409,'现场采集窗口已结束');
       if(input.declined===true&&captureOpen){await env.DB.prepare('UPDATE cases SET screenshot_declined_at=? WHERE id=?').bind(epoch(),c.id).run();return json({declined:true});}
       const clean=sanitizeBrowserEvidence(input);if(!clean)fail(400,'浏览器证据格式不正确');
       const relatedId=JSON.parse(c.checkpoint).requestId;clean.metadata.network=clean.metadata.network.filter(event=>relatedId&&event.requestId===relatedId);
       const saved=await env.DB.prepare('INSERT OR IGNORE INTO browser_evidence(case_id,captured_at,metadata,image_base64,received_at) VALUES(?,?,?,?,?)').bind(c.id,clean.metadata.capturedAt,JSON.stringify(clean.metadata),clean.image,now()).run();
-      if(!saved.meta.changes)fail(409,'现场截图已经保存，不可覆盖');
+      if(!saved.meta.changes){const existing=await env.DB.prepare('SELECT image_base64 FROM browser_evidence WHERE case_id=?').bind(c.id).first();if(existing?.image_base64===clean.image)return json({metadata:clean.metadata});fail(409,'现场截图已经保存，不可覆盖');}
       await audit(env,c.id,'browser_evidence_saved');return json({metadata:clean.metadata},201);
     }
     if(match[2]==='image'&&request.method==='GET'){const record=await env.DB.prepare('SELECT image_base64 FROM browser_evidence WHERE case_id=?').bind(c.id).first();if(!record)fail(404,'未采集截图');return new Response(Uint8Array.from(atob(record.image_base64),x=>x.charCodeAt(0)),{headers:{'content-type':'image/jpeg','cache-control':'no-store'}});}

@@ -219,3 +219,23 @@ test('public demo only opens developer routes and can be disabled',async()=>{
   assert.equal((await call('/api/team/cases','anonymous')).status,401);
  }finally{db.close();}
 });
+
+test('pasted image in an older draft reaches Explore as native attachment and image tool',async()=>{
+ const {db,env,call}=await setup(),originalFetch=globalThis.fetch;env.AUTO_EXPLORE='true';let request,uploads=0;
+ globalThis.fetch=async(url,options)=>{
+  if(String(url).endsWith('/files')){uploads++;return Response.json({file:{id:'pasted-test-image'}});}
+  request=JSON.parse(options.body);return Response.json({thread:{id:'pasted-thread'}});
+ };
+ try{
+  const c=await(await call('/api/cases','owner',{checkpoint:{},description:'Pasted screenshot test'})).json();
+  db.prepare('UPDATE cases SET created_at=? WHERE id=?').run('2026-01-01T00:00:00Z',c.id);
+  const image={source:'user-uploaded-image',mimeType:'image/jpeg',image:readFileSync(new URL('./fixtures/synthetic-transport.jpg',import.meta.url)).toString('base64'),capturedAt:new Date().toISOString(),viewport:{width:8,height:8},network:[]};
+  assert.equal((await call(`/api/cases/${c.id}/evidence`,'owner',image)).status,201);
+  assert.equal((await call(`/api/cases/${c.id}/evidence`,'owner',image)).status,200);
+  assert.equal((await call(`/api/cases/${c.id}/submit`,'owner',{description:'Pasted screenshot test'})).status,200);
+  assert.equal(uploads,1);assert.deepEqual(request.resources,[{type:'file',file_id:'pasted-test-image'}]);
+  const capability=request.input.content[0].text.match(/Diagnostic capability: ([a-f0-9-]{72})/)[1];
+  const r=await worker.fetch(new Request('https://smm.test/mcp',{method:'POST',headers:{Authorization:'Bearer test-only-mcp','Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'read_incident_image',arguments:{capability}}})}),env);
+  const result=await r.json();assert.ok(result.result.content.some(c=>c.type==='image'&&c.data===image.image));
+ }finally{globalThis.fetch=originalFetch;db.close();}
+});

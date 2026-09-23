@@ -19,3 +19,9 @@ test('browser evidence rejects non-image and oversized attachments',()=>{
  assert.equal(sanitizeBrowserEvidence({...fixture,image:'a'.repeat(350001)}),null);
  assert.equal(sanitizeBrowserEvidence({...fixture,capturedAt:'2000-01-01'}),null);
 });
+
+test('pasted screenshots do not claim browser capture time or viewport',()=>{
+ const image=readFileSync(new URL('./fixtures/synthetic-transport.jpg',import.meta.url)).toString('base64');
+ const value=sanitizeBrowserEvidence({source:'user-uploaded-image',image,mimeType:'image/jpeg',capturedAt:new Date().toISOString(),viewport:{width:8,height:8},network:[]});
+ assert.equal(value.metadata.source,'user-uploaded-image');assert.equal(value.metadata.capturedAt,null);assert.equal(value.metadata.viewport,null);assert.ok(value.metadata.uploadedAt);
+});
